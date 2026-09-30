@@ -430,6 +430,32 @@ function renderOdds() {
   document.querySelector('#odds').innerHTML=`<strong>한 수 이동 ${ChessCards.percentLabel(move)}</strong><br>특수 카드 ${Math.round((100-ChessCards.percent(move))*10)/10}%<br>가장 드문 카드 ${rarest}%`;
 }
 renderOdds();
+
+// 플레이 방법 팝업. 카드 목록은 cards.js에서 만들어 확률 조정이 바로 반영된다.
+function renderHelpCards() {
+  document.querySelector('#helpCards').replaceChildren(...cards.map(card=>{
+    const box=document.createElement('div'); box.className='helpcard';
+    const icon=document.createElement('span'); icon.className='icon'; icon.textContent=card.icon;
+    const name=document.createElement('strong'); name.textContent=card.name;
+    const pct=document.createElement('span'); pct.textContent=ChessCards.percentLabel(card); name.appendChild(pct);
+    const desc=document.createElement('small'); desc.textContent=card.desc;
+    box.append(icon,name,desc); return box;
+  }));
+}
+function openHelp() { document.querySelector('#helpModal').classList.add('open'); }
+function closeHelp() {
+  document.querySelector('#helpModal').classList.remove('open');
+  try { localStorage.setItem('chessUnoHelpSeen','1'); } catch {}
+}
+renderHelpCards();
+document.querySelector('#helpOpen').onclick=openHelp;
+document.querySelector('#helpClose').onclick=closeHelp;
+document.querySelector('#helpDone').onclick=closeHelp;
+document.querySelector('#helpModal').onclick=event=>{ if(event.target.id==='helpModal') closeHelp(); };
+document.addEventListener('keydown',event=>{ if(event.key==='Escape'&&document.querySelector('#helpModal').classList.contains('open')) closeHelp(); });
+let helpSeen=false; try { helpSeen=localStorage.getItem('chessUnoHelpSeen')==='1'; } catch {}
+if (!helpSeen && location.pathname!=='/debug-play.html') openHelp();
+
 freshGame();
 
 if (location.pathname === '/debug-play.html') {
