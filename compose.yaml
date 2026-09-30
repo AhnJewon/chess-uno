@@ -1,0 +1,15 @@
+services:
+  chess-uno:
+    build: .
+    container_name: chess-uno
+    restart: unless-stopped
+    ports:
+      - "3210:3000"
+    networks:
+      - default
+      - npm_proxy
+
+networks:
+  npm_proxy:
+    external: true
+    name: nginx-proxy-manager_default

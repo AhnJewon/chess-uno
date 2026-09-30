@@ -1,0 +1,7 @@
+services:
+  chess-uno-test:
+    build: .
+    container_name: chess-uno-test
+    restart: unless-stopped
+    ports:
+      - "3211:3000"
