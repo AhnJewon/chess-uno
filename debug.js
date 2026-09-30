@@ -1,4 +1,5 @@
 const S={K:'♚',Q:'♛',R:'♜',B:'♝',N:'♞',P:'♟'};
+document.getElementById('cardbuttons').innerHTML=ChessCards.cards.map(c=>`<a href="/debug-play.html?card=${c.id}"><b>${c.icon}</b>${c.name} · ${ChessCards.percentLabel(c)}</a>`).join('');
 const empty=()=>Array.from({length:8},()=>Array(8).fill(null));
 const p=(color,type,extra={})=>({color,type,hasMoved:false,...extra});
 const has=(moves,r,c,key)=>moves.some(m=>m.to[0]===r&&m.to[1]===c&&(!key||m[key]));

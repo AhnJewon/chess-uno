@@ -1,19 +1,5 @@
 const symbols = { K:'♚', Q:'♛', R:'♜', B:'♝', N:'♞', P:'♟' };
-const cards = [
-  { id:'move', icon:'♟', name:'한 수 이동', desc:'정식 체스 규칙으로 한 번 움직여요 · 50%', kind:'move', weight:50 },
-  { id:'swap', icon:'⇄', name:'적과 자리 바꾸기', desc:'내 기물 하나와 상대 기물 하나의 위치를 바꿔요 · 3%', kind:'swap', weight:3 },
-  { id:'ownSwap', icon:'⇆', name:'아군 자리 바꾸기', desc:'킹을 제외한 내 기물 두 개의 위치를 바꿔요 · 3%', kind:'ownSwap', weight:3 },
-  { id:'enemySwap', icon:'⥄', name:'적군 자리 바꾸기', desc:'킹을 제외한 상대 기물 두 개의 위치를 바꿔요 · 3%', kind:'enemySwap', weight:3 },
-  { id:'change', icon:'♕', name:'기물 교체', desc:'킹을 제외한 내 기물 하나를 바꿔요 · 3%', kind:'change', weight:3 },
-  { id:'shuffle', icon:'⤨', name:'대혼란', desc:'킹을 제외한 양쪽 군대의 기물 위치를 모두 섞어요 · 5%', kind:'shuffle', weight:5 },
-  { id:'color', icon:'◐', name:'군대 반전', desc:'양쪽 군대 전체를 맞바꾸고 한 번 더 행동해요 · 2%', kind:'color', weight:2 },
-  { id:'skip', icon:'⊘', name:'내 턴 스킵', desc:'이번 내 차례를 즉시 넘겨요 · 9%', kind:'skip', weight:9 },
-  { id:'double', icon:'×2', name:'더블 액션', desc:'정식 이동을 두 번 해요 · 2%', kind:'double', weight:2 },
-  { id:'wild', icon:'★', name:'와일드', desc:'원하는 특수 카드 하나를 골라 사용해요 · 2%', kind:'wild', weight:2 },
-  { id:'distance', icon:'↟', name:'이동 거리 두 배', desc:'모든 기물을 선택하고 폰·나이트·킹의 거리를 두 배로 만들어요 · 9%', kind:'distance', weight:9 },
-  { id:'pawnTwice', icon:'♟²', name:'폰 두 번 이동', desc:'같은 폰으로 최대 두 번 연속 이동해요 · 8%', kind:'pawnTwice', weight:8 },
-  { id:'addPawn', icon:'♟+', name:'폰 추가', desc:'내 군대가 시작한 쪽 4개 줄의 빈 칸에 폰 1개를 추가해요. 상대 진영에는 놓을 수 없고 군대 반전 시 허용 구역도 뒤집혀요 · 1%', kind:'addPawn', weight:1 }
-];
+const cards = ChessCards.cards;
 
 let game = {};
 let orient = false;
@@ -80,7 +66,7 @@ function hasValidSwap(kind) {
     if(one[0]===two[0]&&one[1]===two[1])continue;
     const trial=ChessRules.copyBoard(game.board);
     [trial[one[0]][one[1]],trial[two[0]][two[1]]]=[trial[two[0]][two[1]],trial[one[0]][one[1]]];
-    if(!ChessRules.inCheck(trial,game.turn,game.meta))return true;
+    if(!ChessRules.inCheck(trial,game.turn,game.meta)&&!ChessRules.hasStrandedPawn(trial,game.meta))return true;
   }
   return false;
 }
@@ -106,7 +92,17 @@ function canResolveCheck(kind) {
   return false;
 }
 
+// 체크 중에 좋은 카드를 뽑았는데 체크를 못 풀면 패배 대신 한 수 이동으로 바꾼다.
+function applyCheckFallback(kind) {
+  if (!ChessCards.checkFallbackKinds.includes(kind) || !ChessRules.inCheck(game.board,game.turn,game.meta) || canResolveCheck(kind)) return kind;
+  const card=cards.find(c=>c.kind===kind);
+  game.cardId='move';
+  addLog(`♟ 「${card.name}」 카드로는 체크를 풀 수 없어 「한 수 이동」으로 바뀌었어요.`);
+  return 'move';
+}
+
 function cardCheckmate(card) {
+  if (card?.kind==='move') return endGame(`${colorName(ChessRules.opposite(game.turn))} 승리 · 체크메이트`);
   return endGame(`${colorName(ChessRules.opposite(game.turn))} 승리 · 「${card.name}」 카드로 체크를 해소할 수 없어 카드 체크메이트`);
 }
 
@@ -115,7 +111,8 @@ function drawCard() {
   if (game.deck <= 0) game.deck = 24;
   const card=drawWeighted(); game.deck--; game.drawn=true; game.cardId=card.id;
   addLog(`🃏 ${colorName(game.turn)}이 「${card.name}」 카드를 뽑았어요.`);
-  if (!canResolveCheck(card.kind)) return cardCheckmate(card);
+  const kind=applyCheckFallback(card.kind);
+  if (!canResolveCheck(kind)) return cardCheckmate(activeCard());
   render(); notifyState();
 }
 
@@ -124,6 +121,7 @@ function useCard() {
   const card=activeCard();
   if (card.kind==='wild') {
     const choices=cards.filter(c=>!['move','wild'].includes(c.kind)&&canResolveCheck(c.kind)).map(c=>[c.icon,c.name,c.kind]);
+    if (!choices.length) { game.cardId='move'; addLog('★ 체크를 풀 수 있는 특수 효과가 없어 「한 수 이동」으로 바뀌었어요.'); return startEffect('move'); }
     return choose('와일드 효과 선택','사용할 특수 효과를 고르세요.',choices,kind=>startEffect(kind));
   }
   startEffect(card.kind);
@@ -141,7 +139,10 @@ function startEffect(kind) {
     fallbackMessage='교환할 기물 조합이 없어 「한 수 이동」으로 바뀌었어요.';
     addLog(`⇄ ${fallbackMessage}`);
   }
+  kind=applyCheckFallback(kind);
   if (!canResolveCheck(kind)) return cardCheckmate(cards.find(card=>card.kind===kind)||activeCard());
+  // 이동하지 않는 카드를 쓰면 상대 폰을 앙파상으로 잡을 기회도 지나간다.
+  if (['skip','shuffle','swap','ownSwap','enemySwap','change','addPawn'].includes(kind)) game.meta={...game.meta,enPassant:null};
   game.activeKind=kind; selected=null; targets=[];
   if (kind==='color') return colorReverse();
   if (kind==='skip') return finishTurn('⊘ 카드를 뽑은 사람이 자기 차례를 넘겼어요.');
@@ -223,6 +224,7 @@ function handleSwap(r,c,p) {
   if (!p || p.color!==secondColor || p.type==='K') return toast(`킹을 제외한 ${secondLabel} 기물을 골라 주세요.`);
   const trial=ChessRules.copyBoard(game.board); [trial[swapFirst[0]][swapFirst[1]],trial[r][c]]=[trial[r][c],trial[swapFirst[0]][swapFirst[1]]];
   if (ChessRules.inCheck(trial,game.turn,game.meta)) return toast('그 교환은 킹을 체크 상태로 만들어요.');
+  if (ChessRules.hasStrandedPawn(trial,game.meta)) return toast('폰을 승격 줄로 옮기는 교환은 할 수 없어요.');
   game.board=trial; swapFirst=null;
   const message=kind==='ownSwap'?'⇆ 내 기물 두 개의 위치를 바꿨어요.':kind==='enemySwap'?'⥄ 상대 기물 두 개의 위치를 바꿨어요.':'⇄ 내 기물과 상대 기물의 위치를 바꿨어요.';
   finishTurn(message);
@@ -233,21 +235,36 @@ function handleChange(r,c,p) {
   choose('기물 교체','바꿀 기물을 고르세요.',[['♛','퀸','Q'],['♜','룩','R'],['♝','비숍','B'],['♞','나이트','N'],['♟','폰','P']],type=>{
     const before=p.type; p.type=type;
     if (ChessRules.inCheck(game.board,game.turn,game.meta)) { p.type=before; return toast('그 교체는 킹을 체크 상태로 만들어요.'); }
+    if (ChessRules.hasStrandedPawn(game.board,game.meta)) { p.type=before; return toast('승격 줄에 있는 기물은 폰으로 바꿀 수 없어요.'); }
     finishTurn(`♕ ${before} 기물을 ${type} 기물로 바꿨어요.`);
   });
 }
 
-function shufflePieces() {
+function shuffledBoard(source) {
+  const board=ChessRules.copyBoard(source);
   for(const color of ['w','b']){
     const spots=[];const pieces=[];
-    for(let r=0;r<8;r++)for(let c=0;c<8;c++){const p=game.board[r][c];if(p?.color===color&&p.type!=='K'){spots.push([r,c]);pieces.push(p);game.board[r][c]=null;}}
+    for(let r=0;r<8;r++)for(let c=0;c<8;c++){const p=board[r][c];if(p?.color===color&&p.type!=='K'){spots.push([r,c]);pieces.push(p);board[r][c]=null;}}
     for(let i=pieces.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pieces[i],pieces[j]]=[pieces[j],pieces[i]];}
-    spots.forEach(([r,c],i)=>game.board[r][c]=pieces[i]);
+    spots.forEach(([r,c],i)=>board[r][c]=pieces[i]);
   }
-  if (ChessRules.inCheck(game.board,game.turn,game.meta)) {
-    addLog('⤨ 양쪽 군대를 섞은 결과 체크를 해소하지 못했어요.');
-    return endGame(`${colorName(ChessRules.opposite(game.turn))} 승리 · ${colorName(game.turn)} 킹이 체크 상태가 되어 패배했어요.`);
+  return board;
+}
+
+// 내 킹이 안전하고 승격 줄에 폰이 없는 배치가 나올 때까지 다시 섞는다.
+function shufflePieces() {
+  const wasInCheck=ChessRules.inCheck(game.board,game.turn,game.meta);
+  let board=null;
+  for(let attempt=0;attempt<300&&!board;attempt++){
+    const trial=shuffledBoard(game.board);
+    if(!ChessRules.inCheck(trial,game.turn,game.meta)&&!ChessRules.hasStrandedPawn(trial,game.meta))board=trial;
   }
+  if (!board && wasInCheck) {
+    addLog('⤨ 어떻게 섞어도 체크를 해소할 수 없었어요.');
+    return endGame(`${colorName(ChessRules.opposite(game.turn))} 승리 · 대혼란으로 체크를 해소하지 못해 카드 체크메이트`);
+  }
+  if (!board) return finishTurn('⤨ 안전하게 섞을 수 있는 배치가 없어 기물이 그대로 남았어요.');
+  game.board=board;
   const opponent=ChessRules.opposite(game.turn);
   finishTurn(`⤨ 킹을 제외한 양쪽 군대의 기물 위치를 모두 섞었어요.${ChessRules.inCheck(game.board,opponent,game.meta)?' 상대 킹 체크!':''}`);
 }
@@ -317,7 +334,7 @@ function render() {
   document.querySelector('#turnLabel').textContent=game.over?game.result:`${colorName(game.turn)} 차례 · ${status.check?'체크 · ':''}${game.drawn?(game.activeKind?'효과 진행':'카드 사용'):'카드 뽑기'}`;
   document.querySelector('#p1Color').textContent=`· ${game.ownerByColor.w==='w'?'White':'Black'}`; document.querySelector('#p2Color').textContent=`· ${game.ownerByColor.w==='b'?'White':'Black'}`;
   document.querySelector('#deckCount').textContent=`DRAW · ${game.deck}`;
-  const card=activeCard(), area=document.querySelector('#cardArea'); area.className=card?'card':'empty'; area.innerHTML=card?`<span class="icon">${card.icon}</span><strong>${card.name}</strong><small>${card.desc}</small>`:'카드를 뽑으면 효과가 공개돼요.';
+  const card=activeCard(), area=document.querySelector('#cardArea'); area.className=card?'card':'empty'; area.innerHTML=card?`<span class="icon">${card.icon}</span><strong>${card.name}</strong><small>${card.desc} · ${ChessCards.percentLabel(card)}</small>`:'카드를 뽑으면 효과가 공개돼요.';
   const myTurn=canPlayerInteract();
   document.querySelector('#cardState').textContent=card?'1 CARD':'READY'; document.querySelector('#draw').disabled=game.drawn||game.over||!myTurn;
   const use=document.querySelector('#useCard'); use.disabled=!game.drawn||!!game.activeKind||game.over||!myTurn; use.textContent=!myTurn?'상대 차례예요':!game.drawn?'카드를 먼저 뽑으세요':game.activeKind?'효과 진행 중':'카드 사용하기';
@@ -335,13 +352,18 @@ document.querySelector('#draw').onclick=drawCard; document.querySelector('#useCa
 document.querySelector('#flip').onclick=()=>{orient=!orient;render()}; document.querySelector('#newGame').onclick=()=>{if(confirm('새 게임을 시작할까요?'))freshGame()};
 document.querySelector('#modalClose').onclick=()=>document.querySelector('#modal').classList.remove('open');
 document.querySelector('#resultClose').onclick=()=>{hiddenResult=game.result;document.querySelector('#resultOverlay').classList.remove('open')};
+function renderOdds() {
+  const move=cards.find(c=>c.id==='move'), rarest=Math.min(...cards.filter(c=>c.id!=='move').map(ChessCards.percent));
+  document.querySelector('#odds').innerHTML=`<strong>한 수 이동 ${ChessCards.percentLabel(move)}</strong><br>특수 카드 ${Math.round((100-ChessCards.percent(move))*10)/10}%<br>가장 드문 카드 ${rarest}%`;
+}
+renderOdds();
 freshGame();
 
 if (location.pathname === '/debug-play.html') {
   document.querySelector('.online').style.display='none';
   const lab=document.createElement('section');
   lab.style.cssText='display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;padding:13px 14px;background:#fff6dc;border:1px solid #e3c982;border-radius:13px;font-size:12px';
-  lab.innerHTML='<strong>디버그 카드 선택</strong>' + cards.map(card=>`<button class="pill" data-debug-card="${card.id}">${card.icon} ${card.name} ${card.weight}%</button>`).join('') + '<button class="pill" id="debugCheck">카드 체크메이트 배치</button><button class="pill" id="debugDoubleCheck">더블 체크 탈출 배치</button><button class="pill" id="debugNoPawn">폰 없음 배치</button><button class="pill" id="debugVictory">승리 화면 테스트</button><button class="pill" id="debugReset">판 초기화</button><a class="ghost" href="/debug.html">규칙 테스트로</a>';
+  lab.innerHTML='<strong>디버그 카드 선택</strong>' + cards.map(card=>`<button class="pill" data-debug-card="${card.id}">${card.icon} ${card.name} ${ChessCards.percentLabel(card)}</button>`).join('') + '<button class="pill" id="debugCheck">카드 체크메이트 배치</button><button class="pill" id="debugDoubleCheck">더블 체크 탈출 배치</button><button class="pill" id="debugNoPawn">폰 없음 배치</button><button class="pill" id="debugVictory">승리 화면 테스트</button><button class="pill" id="debugReset">판 초기화</button><a class="ghost" href="/debug.html">규칙 테스트로</a>';
   document.querySelector('.top').after(lab);
   const forceCard=id=>{
     const card=cards.find(item=>item.id===id); if(!card)return;

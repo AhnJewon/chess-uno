@@ -196,9 +196,18 @@
     return { over: false, reason: check ? 'check' : 'playing', check, winner: null };
   }
 
+  // 카드 효과(자리 바꾸기·교체·대혼란)로 폰이 자기 승격 줄에 놓이면 승격도 이동도 못 하는 폰이 된다.
+  function hasStrandedPawn(board, meta = {}) {
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+      const p = board[r][c];
+      if (p?.type === 'P' && r === promotionRow(p.color, !!meta.colorReversed)) return true;
+    }
+    return false;
+  }
+
   function reverseColors(board) {
     return board.map(row => row.map(piece => piece ? { ...piece, color: opposite(piece.color) } : null));
   }
 
-  return { initialBoard, copyBoard, opposite, direction, homeRow, pawnStartRow, promotionRow, pawnPlacementAllowed, findKing, squareAttacked, inCheck, pseudoMoves, legalMoves, doubleFirstMoves, distanceMoves, allLegalMoves, allDoubleFirstMoves, applyMove, status, reverseColors };
+  return { initialBoard, copyBoard, opposite, direction, homeRow, pawnStartRow, promotionRow, pawnPlacementAllowed, findKing, squareAttacked, inCheck, pseudoMoves, legalMoves, doubleFirstMoves, distanceMoves, allLegalMoves, allDoubleFirstMoves, applyMove, status, hasStrandedPawn, reverseColors };
 });

@@ -118,3 +118,24 @@ test('double action may leave check after its first move when a legal second esc
   assert.equal(R.inCheck(after.board,'w',after.meta),true);
   assert.ok(R.allLegalMoves(after.board,'w',after.meta).length>0);
 });
+
+test('stranded pawn detection follows each army promotion row, including reversal', () => {
+  const b = empty();
+  b[7][4] = piece('w', 'K'); b[0][0] = piece('b', 'K');
+  b[0][3] = piece('w', 'P');
+  assert.equal(R.hasStrandedPawn(b, {}), true);
+  assert.equal(R.hasStrandedPawn(b, { colorReversed: true }), false);
+  b[0][3] = null; b[7][2] = piece('b', 'P');
+  assert.equal(R.hasStrandedPawn(b, {}), true);
+  b[7][2] = null; b[6][2] = piece('b', 'P');
+  assert.equal(R.hasStrandedPawn(b, {}), false);
+});
+
+test('card table sums to 100 and percentages come from weights', () => {
+  const C = require('../cards');
+  assert.equal(C.totalWeight(), 100);
+  const move = C.cards.find(c => c.id === 'move');
+  assert.equal(C.percentLabel(move), '50%');
+  assert.equal(new Set(C.cards.map(c => c.id)).size, C.cards.length);
+  assert.ok(!C.checkFallbackKinds.includes('skip'), 'skip must stay a penalty in check');
+});
