@@ -140,3 +140,15 @@ test('card table sums to 100 and percentages come from weights', () => {
   assert.equal(new Set(C.cards.map(c => c.id)).size, C.cards.length);
   assert.ok(!C.checkFallbackKinds.includes('skip'), 'skip must stay a penalty in check');
 });
+
+test('room weights are validated, clamped, and default when unchanged', () => {
+  const C = require('../cards');
+  assert.equal(C.normalizeWeights(C.defaultWeights()), null);
+  assert.equal(C.normalizeWeights(Object.fromEntries(C.cards.map(c => [c.id, 0]))), null);
+  const custom = C.normalizeWeights({ ...C.defaultWeights(), skip: 0, move: 500, wild: -3 });
+  assert.equal(custom.skip, 0); assert.equal(custom.move, 100); assert.equal(custom.wild, 0);
+  assert.equal(C.percent(C.cards.find(c => c.id === 'skip'), custom), 0);
+  for (const preset of Object.values(C.presets)) assert.ok(C.totalWeight(preset.weights) > 0);
+  assert.equal(C.totalWeight(C.presets.chaos.weights), 100);
+  assert.equal(C.totalWeight(C.presets.orthodox.weights), 100);
+});

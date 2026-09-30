@@ -33,8 +33,8 @@ function sqName(r,c) { return String.fromCharCode(97+c)+(8-r); }
 function who(color=game.turn) { return playerLabel(color); }
 
 // 게임 기록은 판 상태(game.log)에 담겨 온라인 상대·관전자에게도 같이 전달된다.
-function makeFreshState() {
-  return { board: ChessRules.initialBoard(), turn:'w', meta:{ colorReversed:false, enPassant:null }, ownerByColor:{w:'w',b:'b'}, drawn:false, cardId:null, activeKind:null, movesLeft:0, deck:24, over:false, result:'', moveNo:1, lastMove:null, log:[{ n:1, m:'🎮 새 게임이 시작됐어요. 흰색부터 카드를 뽑으세요.' }] };
+function makeFreshState(weights=null) {
+  return { weights: ChessCards.normalizeWeights(weights), board: ChessRules.initialBoard(), turn:'w', meta:{ colorReversed:false, enPassant:null }, ownerByColor:{w:'w',b:'b'}, drawn:false, cardId:null, activeKind:null, movesLeft:0, deck:24, over:false, result:'', moveNo:1, lastMove:null, log:[{ n:1, m:'🎮 새 게임이 시작됐어요. 흰색부터 카드를 뽑으세요.' }] };
 }
 
 function freshGame() {
@@ -54,7 +54,7 @@ function addLog(message) {
 function toast(message) { const el=document.querySelector('#notice'); el.textContent=message; el.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('show'),1900); }
 function activeCard() { return cards.find(c=>c.id===game.cardId) || null; }
 function currentOwnerCanAct() { return true; }
-function drawWeighted() { let roll=Math.random()*cards.reduce((s,c)=>s+c.weight,0); return cards.find(c=>(roll-=c.weight)<0) || cards[0]; }
+function drawWeighted() { let roll=Math.random()*ChessCards.totalWeight(game.weights); return cards.find(c=>(roll-=ChessCards.weightOf(c,game.weights))<0) || cards.find(c=>ChessCards.weightOf(c,game.weights)>0); }
 
 function eachOwnPiece(callback) {
   for (let r=0;r<8;r++) for (let c=0;c<8;c++) if (game.board[r][c]?.color===game.turn && callback(r,c,game.board[r][c])) return true;
@@ -402,12 +402,12 @@ function render() {
     if(p)b.innerHTML=`<span class="piece ${p.color==='w'?'white':'black'}">${symbols[p.type]}</span>`;
     b.onclick=()=>clickSquare(r,c); boardEl.appendChild(b);
   }
-  renderLog();
+  renderLog(); renderOdds();
   const status=ChessRules.status(game.board,game.turn,game.meta);
   document.querySelector('#turnLabel').textContent=game.over?game.result:`${colorName(game.turn)} 차례 · ${status.check?'체크 · ':''}${game.drawn?(game.activeKind?'효과 진행':'카드 사용'):'카드 뽑기'}`;
   document.querySelector('#p1Color').textContent=`· ${game.ownerByColor.w==='w'?'White':'Black'}`; document.querySelector('#p2Color').textContent=`· ${game.ownerByColor.w==='b'?'White':'Black'}`;
   document.querySelector('#deckCount').textContent=`DRAW · ${game.deck}`;
-  const card=activeCard(), area=document.querySelector('#cardArea'); area.className=card?'card':'empty'; area.innerHTML=card?`<span class="icon">${card.icon}</span><strong>${card.name}</strong><small>${card.desc} · ${ChessCards.percentLabel(card)}</small>`:'카드를 뽑으면 효과가 공개돼요.';
+  const card=activeCard(), area=document.querySelector('#cardArea'); area.className=card?'card':'empty'; area.innerHTML=card?`<span class="icon">${card.icon}</span><strong>${card.name}</strong><small>${card.desc} · ${ChessCards.percentLabel(card,game.weights)}</small>`:'카드를 뽑으면 효과가 공개돼요.';
   const myTurn=canPlayerInteract();
   document.querySelector('#cardState').textContent=card?'1 CARD':'READY'; document.querySelector('#draw').disabled=game.drawn||game.over||!myTurn; document.querySelector('#resign').disabled=game.over;
   const use=document.querySelector('#useCard'); use.disabled=!game.drawn||!!game.activeKind||game.over||!myTurn; use.textContent=!myTurn?'상대 차례예요':!game.drawn?'카드를 먼저 뽑으세요':game.activeKind?'효과 진행 중':'카드 사용하기';
@@ -426,8 +426,8 @@ document.querySelector('#flip').onclick=()=>{orient=!orient;render()}; document.
 document.querySelector('#modalClose').onclick=()=>document.querySelector('#modal').classList.remove('open');
 document.querySelector('#resultClose').onclick=()=>{hiddenResult=game.result;document.querySelector('#resultOverlay').classList.remove('open')};
 function renderOdds() {
-  const move=cards.find(c=>c.id==='move'), rarest=Math.min(...cards.filter(c=>c.id!=='move').map(ChessCards.percent));
-  document.querySelector('#odds').innerHTML=`<strong>한 수 이동 ${ChessCards.percentLabel(move)}</strong><br>특수 카드 ${Math.round((100-ChessCards.percent(move))*10)/10}%<br>가장 드문 카드 ${rarest}%`;
+  const w=game.weights, move=cards.find(c=>c.id==='move'), rarest=Math.min(...cards.filter(c=>c.id!=='move'&&ChessCards.weightOf(c,w)>0).map(c=>ChessCards.percent(c,w)));
+  document.querySelector('#odds').innerHTML=`${w?'<span class="custombadge">방장 설정 확률</span><br>':''}<strong>한 수 이동 ${ChessCards.percentLabel(move,w)}</strong><br>특수 카드 ${Math.round((100-ChessCards.percent(move,w))*10)/10}%<br>가장 드문 카드 ${Number.isFinite(rarest)?rarest:0}%`;
 }
 renderOdds();
 
@@ -437,12 +437,12 @@ function renderHelpCards() {
     const box=document.createElement('div'); box.className='helpcard';
     const icon=document.createElement('span'); icon.className='icon'; icon.textContent=card.icon;
     const name=document.createElement('strong'); name.textContent=card.name;
-    const pct=document.createElement('span'); pct.textContent=ChessCards.percentLabel(card); name.appendChild(pct);
+    const pct=document.createElement('span'); pct.textContent=ChessCards.percentLabel(card,game.weights); name.appendChild(pct);
     const desc=document.createElement('small'); desc.textContent=card.desc;
     box.append(icon,name,desc); return box;
   }));
 }
-function openHelp() { document.querySelector('#helpModal').classList.add('open'); }
+function openHelp() { renderHelpCards(); document.querySelector('#helpModal').classList.add('open'); }
 function closeHelp() {
   document.querySelector('#helpModal').classList.remove('open');
   try { localStorage.setItem('chessUnoHelpSeen','1'); } catch {}

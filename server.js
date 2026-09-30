@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const ratings = require('./ratings');
+const ChessCards = require('./cards');
 
 const app = express();
 const server = http.createServer(app);
@@ -44,6 +45,7 @@ function makeRoom(hostId, state, options = {}) {
     mode: options.mode || 'code',
     chat: [],
     newGameOffer: null,
+    weights: ChessCards.normalizeWeights(state?.weights),
     pids: { w: null, b: null },
     rated: false,
     ratedDone: false,
@@ -113,7 +115,7 @@ function publicRoomList() {
     .map(([code, room]) => ({
       code, name: room.name, host: room.names.w || '빈 자리', guest: room.names.b,
       players: Number(Boolean(room.players.w)) + Number(Boolean(room.players.b)),
-      spectators: room.spectators.size, open: !room.players.w || !room.players.b, over: Boolean(room.state?.over)
+      spectators: room.spectators.size, open: room.mode !== 'quick' && (!room.players.w || !room.players.b), over: Boolean(room.state?.over), custom: Boolean(room.weights), quick: room.mode === 'quick'
     }));
 }
 
@@ -141,7 +143,8 @@ io.on('connection', socket => {
     const code = makeRoom(socket.id, state, { visibility, name: payload?.name, nickname: payload?.nickname });
     socket.join(code);
     const room = rooms.get(code);
-    callback({ ok: true, room: code, seat: 'w', state, info: roomInfo(code, room), chat: room.chat });
+    if (room.state) room.state.weights = room.weights;
+    callback({ ok: true, room: code, seat: 'w', state: room.state, info: roomInfo(code, room), chat: room.chat });
     if (visibility === 'public') broadcastRoomList();
   });
 
@@ -153,10 +156,13 @@ io.on('connection', socket => {
       waitingMatches.set(socket.id, { state, nickname: cleanText(nickname, '플레이어'), pid });
       return callback({ ok: true, status: 'waiting' });
     }
-    const code = makeRoom(opponent.otherSocket.id, opponent.entry.state || state, { mode: 'quick', nickname: opponent.entry.nickname });
+    // 빠른 매칭 판은 공개 목록에 올려 누구나 관전할 수 있게 한다(참가는 불가).
+    const code = makeRoom(opponent.otherSocket.id, opponent.entry.state || state, { mode: 'quick', visibility: 'public', nickname: opponent.entry.nickname });
     const room = rooms.get(code);
     room.players.b = socket.id;
     room.names.b = cleanText(nickname, '플레이어 2');
+    // 빠른 매칭은 랭킹이 공정하도록 항상 기본 확률로 둔다.
+    room.weights = null; if (room.state) room.state.weights = null;
     room.pids = { w: opponent.entry.pid, b: pid };
     // 같은 브라우저끼리(탭 두 개) 매칭된 판은 랭킹에 넣지 않는다.
     room.rated = Boolean(room.pids.w && room.pids.b && room.pids.w !== room.pids.b);
@@ -165,6 +171,8 @@ io.on('connection', socket => {
     opponent.otherSocket.emit('matchFound', { ok: true, room: code, seat: 'w', state: room.state, info, chat: room.chat });
     callback({ ok: true, status: 'matched', room: code, seat: 'b', state: room.state, info, chat: room.chat });
     emitRoomInfo(code, room);
+    room.name = `빠른 매칭 · ${room.names.w} vs ${room.names.b}`;
+    broadcastRoomList();
   });
 
   socket.on('cancelQuickMatch', (callback = () => {}) => callback({ ok: true, cancelled: waitingMatches.delete(socket.id) }));
@@ -174,6 +182,7 @@ io.on('connection', socket => {
     const game = rooms.get(code);
     if (!game) return callback({ ok: false, error: '이미 사라진 방이에요.' });
     if (game.visibility !== 'public') return callback({ ok: false, error: '공개 방만 목록에서 닫을 수 있어요.' });
+    if (game.mode === 'quick') return callback({ ok: false, error: '빠른 매칭 방은 닫을 수 없어요.' });
     if (game.players.w !== socket.id) return callback({ ok: false, error: '방을 만든 플레이어만 닫을 수 있어요.' });
     io.to(code).emit('roomClosed', { room: code, message: '방장이 공개 방을 닫았어요.' });
     io.in(code).socketsLeave(code);
@@ -187,6 +196,7 @@ io.on('connection', socket => {
     const code = String(room || '').toUpperCase();
     const game = rooms.get(code);
     if (!game) return callback({ ok: false, error: '방 코드를 찾을 수 없어요.' });
+    if (game.mode === 'quick') return callback({ ok: false, error: '빠른 매칭 판은 관전만 할 수 있어요.' });
     const seat = !game.players.w ? 'w' : !game.players.b ? 'b' : '';
     if (!seat) return callback({ ok: false, error: '이미 두 명이 참가한 방이에요.' });
     game.spectators?.delete(socket.id);
@@ -224,6 +234,7 @@ io.on('connection', socket => {
     if (!Array.isArray(state.board) || state.board.length !== 8 || !['w','b'].includes(state.turn)) return socket.emit('stateRejected', '잘못된 게임 상태예요.');
     // 새 게임은 상대 동의(answerNewGame)로만 시작된다. 차례인 쪽이 혼자 판을 되돌리는 것을 막는다.
     if (game.state?.moveNo && !(Number(state.moveNo) >= game.state.moveNo)) return reject('진행 중인 판은 새 게임 제안과 상대 수락으로만 초기화할 수 있어요.');
+    state.weights = game.weights; // 확률은 방을 만들 때 정한 값으로 고정
     const overChanged = Boolean(game.state?.over) !== Boolean(state.over);
     game.state = state;
     socket.to(code).emit('stateUpdate', { room: code, state });
@@ -251,6 +262,7 @@ io.on('connection', socket => {
     const role = game && roleOf(game, socket.id);
     if (!role || role.seat === 'spectator') return callback({ ok: false, error: '대전 중인 플레이어만 새 게임을 제안할 수 있어요.' });
     if (!state || !Array.isArray(state.board) || state.board.length !== 8) return callback({ ok: false, error: '잘못된 게임 상태예요.' });
+    state.weights = game.weights;
     const other = role.seat === 'w' ? 'b' : 'w';
     if (!game.players[other]) {
       game.state = state; game.newGameOffer = null; game.rated = false;

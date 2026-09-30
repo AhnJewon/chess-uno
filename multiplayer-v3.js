@@ -142,13 +142,13 @@
       const title=document.createElement('strong');title.textContent=item.name;
       const detail=document.createElement('small');detail.textContent=`${item.host}${item.guest?` vs ${item.guest}`:''} · 코드 ${item.code}${item.over?' · 게임 종료':''}`;
       meta.append(title,detail);
-      const badge=document.createElement('div');badge.className='roombadge';badge.textContent=`플레이어 ${item.players}/2 · 관전 ${item.spectators}`;
+      const badge=document.createElement('div');badge.className='roombadge';badge.textContent=`플레이어 ${item.players}/2 · 관전 ${item.spectators}`; if(item.quick){const q=document.createElement("span");q.className="custombadge";q.textContent="빠른 매칭";badge.appendChild(q);} if(item.custom){const tag=document.createElement("span");tag.className="custombadge";tag.textContent="사용자 확률";badge.appendChild(tag);}
       const actions=document.createElement('div');actions.className='roomactions';
       const current=item.code===room;
-      const join=document.createElement('button');join.className='pill';join.textContent=current?'참가 중':item.open?'참가':'만원';join.disabled=current||!item.open;join.onclick=()=>joinByCode(item.code);
+      const join=document.createElement('button');join.className='pill';join.textContent=current?'참가 중':item.quick?'대전 중':item.open?'참가':'만원';join.disabled=current||!item.open;join.onclick=()=>joinByCode(item.code);
       const watch=document.createElement('button');watch.className='pill';watch.textContent='관전';watch.onclick=()=>watchByCode(item.code);
       actions.append(join,watch);
-      if(current&&seat==='w'){
+      if(current&&seat==='w'&&!item.quick){
         const close=document.createElement('button');close.className='pill danger';close.textContent='방 닫기';
         close.onclick=()=>{if(!confirm('이 공개 방을 닫을까요? 참가자와 관전자도 방에서 나가게 됩니다.'))return;socket.emit('closeRoom',{room:item.code},result=>{if(!result?.ok)toast(result?.error||'방을 닫지 못했어요.')})};
         actions.appendChild(close);
@@ -168,7 +168,7 @@
     if (!socket || !room) { if (confirm('새 게임을 시작할까요?')) freshGame(); return; }
     if (seat==='spectator') return toast('관전 중에는 새 게임을 시작할 수 없어요.');
     if (!confirm('상대에게 새 게임을 제안할까요? 상대가 수락하면 판이 처음부터 시작돼요.')) return;
-    socket.emit('requestNewGame',{room,state:makeFreshState()},result=>{
+    socket.emit('requestNewGame',{room,state:makeFreshState(game.weights)},result=>{
       if (!result?.ok) return toast(result?.error||'새 게임을 제안하지 못했어요.');
       toast(result.started?'상대가 없어 바로 새 게임을 시작했어요.':'새 게임을 제안했어요. 상대의 수락을 기다려요.');
     });
@@ -214,14 +214,50 @@
     socket.emit('chat',{room,text},result=>{ if(!result?.ok) return toast(result?.error||'메시지를 보내지 못했어요.'); chatInput.value=''; });
   };
 
-  document.querySelector('#createRoom').onclick=()=>{
-    if(!socket)return status('서버 연결에 실패했어요.');
-    socket.emit('createRoom',{state:game,nickname:nickname(),visibility:'private'},result=>enter(result,'비공개 방 '));
+  // 방 만들기 팝업: 공개 여부, 방 이름, 카드 확률(프리셋 + 카드별 슬라이더)
+  const createModal=document.querySelector('#createModal');
+  let createVisibility='private', draftWeights=ChessCards.defaultWeights();
+  const weightList=document.querySelector('#weightList');
+  const renderDraft=()=>{
+    createModal.querySelectorAll('[data-vis]').forEach(b=>b.classList.toggle('on',b.dataset.vis===createVisibility));
+    document.querySelector('#createNameRow').style.display=createVisibility==='public'?'':'none';
+    const normalized=ChessCards.normalizeWeights(draftWeights);
+    document.querySelectorAll('#presetButtons [data-preset]').forEach(b=>{const w=ChessCards.presets[b.dataset.preset].weights;b.classList.toggle('on',ChessCards.cards.every(c=>w[c.id]===draftWeights[c.id]));});
+    weightList.querySelectorAll('.weightrow').forEach(row=>{
+      const card=ChessCards.cards.find(c=>c.id===row.dataset.card), w=draftWeights[card.id];
+      row.querySelector('input').value=w; row.querySelector('.w').textContent=w;
+      row.querySelector('.p').textContent=ChessCards.percentLabel(card,draftWeights);
+      row.classList.toggle('zero',w===0);
+    });
+    const total=ChessCards.totalWeight(draftWeights);
+    document.querySelector('#createSum').textContent=!total?'모든 카드가 0이면 방을 만들 수 없어요.':normalized?'방장 설정 확률 · 랭킹 미반영':'기본 확률';
+    document.querySelector('#createConfirm').disabled=!total;
   };
-  document.querySelector('#createPublicRoom').onclick=()=>{
-    if(!socket)return status('서버 연결에 실패했어요.');
-    const name=document.querySelector('#publicRoomName').value;
-    socket.emit('createRoom',{state:game,nickname:nickname(),visibility:'public',name},result=>enter(result,'공개 방 '));
+  document.querySelector('#presetButtons').replaceChildren(...Object.entries(ChessCards.presets).map(([key,preset])=>{
+    const b=document.createElement('button');b.type='button';b.className='pill';b.dataset.preset=key;b.textContent=preset.label;
+    b.onclick=()=>{draftWeights={...preset.weights};renderDraft();};return b;
+  }));
+  weightList.replaceChildren(...ChessCards.cards.map(card=>{
+    const row=document.createElement('div');row.className='weightrow';row.dataset.card=card.id;
+    const icon=document.createElement('span');icon.className='icon';icon.textContent=card.icon;
+    const name=document.createElement('span');name.textContent=card.name;
+    const range=document.createElement('input');range.type='range';range.min='0';range.max=card.id==='move'?'100':'50';range.step='1';range.setAttribute('aria-label',`${card.name} 가중치`);
+    range.oninput=()=>{draftWeights[card.id]=Number(range.value);renderDraft();};
+    const w=document.createElement('span');w.className='w';const p=document.createElement('span');p.className='p';
+    row.append(icon,name,range,w,p);return row;
+  }));
+  createModal.querySelectorAll('[data-vis]').forEach(b=>b.onclick=()=>{createVisibility=b.dataset.vis;renderDraft();});
+  const openCreate=visibility=>{ if(!socket)return status('서버 연결에 실패했어요.'); createVisibility=visibility; renderDraft(); createModal.classList.add('open'); };
+  const closeCreate=()=>createModal.classList.remove('open');
+  document.querySelector('#createRoom').onclick=()=>openCreate('private');
+  document.querySelector('#createPublicRoom').onclick=()=>openCreate('public');
+  document.querySelector('#createClose').onclick=closeCreate;
+  createModal.onclick=event=>{ if(event.target===createModal) closeCreate(); };
+  document.addEventListener('keydown',event=>{ if(event.key==='Escape') closeCreate(); });
+  document.querySelector('#createConfirm').onclick=()=>{
+    if(!ChessCards.totalWeight(draftWeights))return;
+    const state=makeFreshState(draftWeights), name=document.querySelector('#createName').value, visibility=createVisibility;
+    socket.emit('createRoom',{state,nickname:nickname(),visibility,name},result=>{ if(result?.ok) closeCreate(); enter(result,visibility==='public'?'공개 방 ':'비공개 방 '); });
   };
   document.querySelector('#joinRoom').onclick=()=>joinByCode(document.querySelector('#joinCode').value.trim().toUpperCase());
   document.querySelector('#watchRoom').onclick=()=>watchByCode(document.querySelector('#joinCode').value.trim().toUpperCase());

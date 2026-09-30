@@ -23,9 +23,32 @@
   // 체크 중에 뽑았는데 체크를 못 풀면 패배 대신 한 수 이동이 되는 카드. 스킵은 벌칙이라 여기 없다.
   const checkFallbackKinds = ['change', 'ownSwap', 'pawnTwice', 'addPawn'];
 
-  const totalWeight = () => cards.reduce((sum, card) => sum + card.weight, 0);
-  const percent = card => Math.round(card.weight / totalWeight() * 1000) / 10;
-  const percentLabel = card => `${percent(card)}%`;
+  // weights: 방장이 정한 { 카드id: 가중치 }. 없으면 위 표의 기본값.
+  const weightOf = (card, weights) => weights && Number.isInteger(weights[card.id]) ? weights[card.id] : card.weight;
+  const totalWeight = weights => cards.reduce((sum, card) => sum + weightOf(card, weights), 0);
+  const percent = (card, weights) => { const total = totalWeight(weights); return total ? Math.round(weightOf(card, weights) / total * 1000) / 10 : 0; };
+  const percentLabel = (card, weights) => `${percent(card, weights)}%`;
+  const defaultWeights = () => Object.fromEntries(cards.map(card => [card.id, card.weight]));
 
-  return { cards, checkFallbackKinds, totalWeight, percent, percentLabel };
+  // 방 만들기 프리셋
+  const presets = {
+    classic: { label:'기본', weights: defaultWeights() },
+    chaos: { label:'혼돈', weights: { move:20, distance:10, pawnTwice:8, skip:4, ownSwap:8, swap:8, enemySwap:8, shuffle:10, addPawn:5, change:5, double:6, color:4, wild:4 } },
+    orthodox: { label:'정통에 가까움', weights: { move:80, distance:6, pawnTwice:5, skip:2, ownSwap:2, swap:1, enemySwap:1, shuffle:0, addPawn:1, change:0, double:1, color:0, wild:1 } },
+    noSkip: { label:'스킵 없음', weights: { ...defaultWeights(), skip:0 } }
+  };
+
+  // 서버와 클라이언트가 같이 쓰는 검증. 0~100 정수만, 모두 0이면 거부. 기본값과 같으면 null(기본 확률).
+  function normalizeWeights(input) {
+    if (!input || typeof input !== 'object') return null;
+    const out = {};
+    for (const card of cards) {
+      const value = Math.round(Number(input[card.id]));
+      out[card.id] = Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : card.weight;
+    }
+    if (!Object.values(out).some(v => v > 0)) return null;
+    return cards.every(card => out[card.id] === card.weight) ? null : out;
+  }
+
+  return { cards, checkFallbackKinds, weightOf, totalWeight, percent, percentLabel, defaultWeights, presets, normalizeWeights };
 });
