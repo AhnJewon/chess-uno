@@ -34,11 +34,45 @@
     const button=document.createElement('button');button.className='pill roomcode';button.textContent=code;button.title='방 코드 복사';button.onclick=()=>copyRoomCode(code);
     statusElement.replaceChildren(document.createTextNode(before),button,document.createTextNode(after));
   };
+  let names = { w:null, b:null };
   const applyRoomInfo = info => {
     if (!info || (room && info.room !== room)) return;
+    names = { ...names, ...info.names };
     document.querySelector('#p1Name').textContent=info.names?.w || '플레이어 1';
     document.querySelector('#p2Name').textContent=info.names?.b || '플레이어 2';
   };
+  // 게임 기록에 "닉네임(흰색)"으로 남긴다. 방 밖에서는 색 이름만.
+  playerLabel = color => {
+    const name = room && names[game.ownerByColor?.[color] || color];
+    return name ? `${name}(${colorName(color)})` : colorName(color);
+  };
+
+  const chatLog = document.querySelector('#chatLog');
+  const chatInput = document.querySelector('#chatInput');
+  const chatSend = document.querySelector('#chatSend');
+  const offerBar = document.querySelector('#newGameOffer');
+  const setChatEnabled = on => { chatInput.disabled=!on; chatSend.disabled=!on; };
+  const appendChat = entry => {
+    chatLog.querySelector('.chatempty')?.remove();
+    const row=document.createElement('div');
+    row.className=`chatmsg ${entry.seat}${entry.sid&&entry.sid===socket?.id?' mine':''}`;
+    if (entry.seat==='system') row.textContent=`· ${entry.text}`;
+    else {
+      const who=document.createElement('b');
+      who.textContent=`${entry.name}${entry.seat==='spectator'?' (관전)':entry.seat==='w'?' (흰색)':' (검은색)'}`;
+      row.append(who,`: ${entry.text}`);
+    }
+    const nearBottom=chatLog.scrollHeight-chatLog.scrollTop-chatLog.clientHeight<40;
+    chatLog.appendChild(row);
+    if (nearBottom) chatLog.scrollTop=chatLog.scrollHeight;
+  };
+  const renderChat = list => {
+    chatLog.replaceChildren();
+    if (!list?.length) { const empty=document.createElement('div');empty.className='chatempty';empty.textContent='아직 대화가 없어요. 먼저 인사해 보세요.';chatLog.appendChild(empty); }
+    (list||[]).forEach(appendChat);
+    chatLog.scrollTop=chatLog.scrollHeight;
+  };
+  const hideOffer = () => offerBar.classList.remove('open');
   const setSearching = value => {
     searching=value;
     quickButton.textContent=value?'매칭 취소':'빠른 매칭';
@@ -65,9 +99,10 @@
     if (!result?.ok) return status(result?.error || '방에 들어가지 못했어요.');
     setSearching(false);
     room=result.room;seat=result.seat;
+    applyRoomInfo(result.info);
     if (result.state) install(result.state);
     else lastSent=JSON.stringify(game);
-    applyRoomInfo(result.info);
+    renderChat(result.chat); setChatEnabled(true); hideOffer();
     roomStatus(message,room,seat==='spectator'?' · 실시간 보기 전용':' · 누르면 복사돼요.');
     socket?.emit('requestRoomList');
   }
@@ -114,6 +149,27 @@
     lastSent=key;socket.emit('stateUpdate',{room,seat,state});
   };
 
+  // 온라인 방에서는 새 게임을 제안하고 상대가 수락해야 시작된다.
+  requestNewGame = () => {
+    if (!socket || !room) { if (confirm('새 게임을 시작할까요?')) freshGame(); return; }
+    if (seat==='spectator') return toast('관전 중에는 새 게임을 시작할 수 없어요.');
+    if (!confirm('상대에게 새 게임을 제안할까요? 상대가 수락하면 판이 처음부터 시작돼요.')) return;
+    socket.emit('requestNewGame',{room,state:makeFreshState()},result=>{
+      if (!result?.ok) return toast(result?.error||'새 게임을 제안하지 못했어요.');
+      toast(result.started?'상대가 없어 바로 새 게임을 시작했어요.':'새 게임을 제안했어요. 상대의 수락을 기다려요.');
+    });
+  };
+  const answerOffer = accept => { hideOffer(); socket?.emit('answerNewGame',{room,accept},result=>{ if(!result?.ok) toast(result?.error||'응답하지 못했어요.'); }); };
+  document.querySelector('#acceptNewGame').onclick=()=>answerOffer(true);
+  document.querySelector('#declineNewGame').onclick=()=>answerOffer(false);
+
+  document.querySelector('#chatForm').onsubmit=event=>{
+    event.preventDefault();
+    const text=chatInput.value.trim();
+    if (!text || !socket || !room) return;
+    socket.emit('chat',{room,text},result=>{ if(!result?.ok) return toast(result?.error||'메시지를 보내지 못했어요.'); chatInput.value=''; });
+  };
+
   document.querySelector('#createRoom').onclick=()=>{
     if(!socket)return status('서버 연결에 실패했어요.');
     socket.emit('createRoom',{state:game,nickname:nickname(),visibility:'private'},result=>enter(result,'비공개 방 '));
@@ -148,7 +204,7 @@
     socket.on('roomInfo',applyRoomInfo);
     socket.on('roomClosed',payload=>{
       if(payload?.room!==room)return;
-      room='';seat='';lastSent='';
+      room='';seat='';lastSent='';names={w:null,b:null};setChatEnabled(false);hideOffer();
       document.querySelector('#p1Name').textContent='플레이어 1';document.querySelector('#p2Name').textContent='플레이어 2';
       status(payload.message||'공개 방이 닫혔어요.');toast(payload.message||'공개 방이 닫혔어요.');render();socket.emit('requestRoomList');
     });
@@ -160,5 +216,12 @@
     socket.on('playerJoined',()=>roomStatus('방 ',room,' · 상대가 참가했어요.'));
     socket.on('playerLeft',()=>roomStatus('방 ',room,seat==='spectator'?' 관전 중 · 플레이어 한 명이 나갔어요.':' · 상대가 나갔어요.'));
     socket.on('stateRejected',message=>status(message||'현재 차례가 아니라 반영되지 않았어요.'));
+    socket.on('chat',payload=>{ if(payload?.room===room) appendChat(payload.entry); });
+    socket.on('newGameOffer',payload=>{
+      if (payload?.room!==room || seat==='spectator' || payload.seat===seat) return;
+      document.querySelector('#newGameOfferText').textContent=`${payload.name} 님이 새 게임을 제안했어요. 수락하면 판이 처음부터 시작돼요.`;
+      offerBar.classList.add('open');
+    });
+    socket.on('newGameOfferClosed',payload=>{ if(payload?.room===room) hideOffer(); });
   }
 })();

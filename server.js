@@ -36,6 +36,8 @@ function makeRoom(hostId, state, options = {}) {
     visibility: options.visibility === 'public' ? 'public' : 'private',
     name: cleanText(options.name, '체스 UNO 공개 대전', 24),
     mode: options.mode || 'code',
+    chat: [],
+    newGameOffer: null,
     createdAt: Date.now()
   });
   return code;
@@ -46,6 +48,23 @@ function roomInfo(code, room) {
 }
 
 function emitRoomInfo(code, room) { io.to(code).emit('roomInfo', roomInfo(code, room)); }
+
+function roleOf(room, socketId) {
+  if (room.players.w === socketId) return { seat: 'w', name: room.names.w };
+  if (room.players.b === socketId) return { seat: 'b', name: room.names.b };
+  if (room.spectators?.has(socketId)) return { seat: 'spectator', name: room.spectators.get(socketId) };
+  return null;
+}
+
+// 채팅은 방마다 최근 60개를 남겨 나중에 들어온 사람도 볼 수 있게 한다.
+function pushChat(code, room, entry) {
+  const full = { ...entry, at: Date.now() };
+  room.chat.push(full);
+  if (room.chat.length > 60) room.chat.splice(0, room.chat.length - 60);
+  io.to(code).emit('chat', { room: code, entry: full });
+}
+
+function systemChat(code, room, text) { pushChat(code, room, { seat: 'system', name: '', text }); }
 
 function publicRoomList() {
   return [...rooms.entries()]
@@ -82,7 +101,7 @@ io.on('connection', socket => {
     const code = makeRoom(socket.id, state, { visibility, name: payload?.name, nickname: payload?.nickname });
     socket.join(code);
     const room = rooms.get(code);
-    callback({ ok: true, room: code, seat: 'w', state, info: roomInfo(code, room) });
+    callback({ ok: true, room: code, seat: 'w', state, info: roomInfo(code, room), chat: room.chat });
     if (visibility === 'public') broadcastRoomList();
   });
 
@@ -99,8 +118,8 @@ io.on('connection', socket => {
     room.names.b = cleanText(nickname, '플레이어 2');
     opponent.otherSocket.join(code); socket.join(code);
     const info = roomInfo(code, room);
-    opponent.otherSocket.emit('matchFound', { ok: true, room: code, seat: 'w', state: room.state, info });
-    callback({ ok: true, status: 'matched', room: code, seat: 'b', state: room.state, info });
+    opponent.otherSocket.emit('matchFound', { ok: true, room: code, seat: 'w', state: room.state, info, chat: room.chat });
+    callback({ ok: true, status: 'matched', room: code, seat: 'b', state: room.state, info, chat: room.chat });
     emitRoomInfo(code, room);
   });
 
@@ -130,7 +149,8 @@ io.on('connection', socket => {
     game.players[seat] = socket.id;
     game.names[seat] = cleanText(nickname, seat === 'w' ? '플레이어 1' : '플레이어 2');
     socket.join(code);
-    callback({ ok: true, room: code, seat, state: game.state, info: roomInfo(code, game) });
+    callback({ ok: true, room: code, seat, state: game.state, info: roomInfo(code, game), chat: game.chat });
+    systemChat(code, game, `${game.names[seat]} 님이 참가했어요.`);
     socket.to(code).emit('playerJoined');
     emitRoomInfo(code, game);
     if (game.visibility === 'public') broadcastRoomList();
@@ -144,7 +164,8 @@ io.on('connection', socket => {
     if (!game.spectators) game.spectators = new Map();
     game.spectators.set(socket.id, cleanText(nickname, '관전자'));
     socket.join(code);
-    callback({ ok: true, room: code, seat: 'spectator', state: game.state, info: roomInfo(code, game) });
+    callback({ ok: true, room: code, seat: 'spectator', state: game.state, info: roomInfo(code, game), chat: game.chat });
+    systemChat(code, game, `${game.spectators.get(socket.id)} 님이 관전을 시작했어요.`);
     emitRoomInfo(code, game);
     if (game.visibility === 'public') broadcastRoomList();
   });
@@ -154,12 +175,63 @@ io.on('connection', socket => {
     const game = rooms.get(code);
     if (!game || !state || game.players[seat] !== socket.id) return;
     const allowedSeat = game.state ? game.state.ownerByColor?.[game.state.turn] : 'w';
-    if (allowedSeat !== seat) return socket.emit('stateRejected', '상대 차례의 조작은 반영되지 않았어요.');
+    const reject = message => { socket.emit('stateRejected', message); if (game.state) socket.emit('stateUpdate', { room: code, state: game.state }); };
+    if (allowedSeat !== seat) return reject('상대 차례의 조작은 반영되지 않았어요.');
     if (!Array.isArray(state.board) || state.board.length !== 8 || !['w','b'].includes(state.turn)) return socket.emit('stateRejected', '잘못된 게임 상태예요.');
+    // 새 게임은 상대 동의(answerNewGame)로만 시작된다. 차례인 쪽이 혼자 판을 되돌리는 것을 막는다.
+    if (game.state?.moveNo && !(Number(state.moveNo) >= game.state.moveNo)) return reject('진행 중인 판은 새 게임 제안과 상대 수락으로만 초기화할 수 있어요.');
     const overChanged = Boolean(game.state?.over) !== Boolean(state.over);
     game.state = state;
     socket.to(code).emit('stateUpdate', { room: code, state });
     if (overChanged && game.visibility === 'public') broadcastRoomList();
+  });
+
+  // 참가자와 관전자 모두 채팅할 수 있다.
+  socket.on('chat', ({ room, text } = {}, callback = () => {}) => {
+    const code = String(room || '').toUpperCase();
+    const game = rooms.get(code);
+    const role = game && roleOf(game, socket.id);
+    if (!role) return callback({ ok: false, error: '방에 들어가야 채팅할 수 있어요.' });
+    const message = cleanText(text, '', 200);
+    if (!message) return callback({ ok: false, error: '메시지를 입력해 주세요.' });
+    pushChat(code, game, { seat: role.seat, name: role.name || '익명', text: message, sid: socket.id });
+    callback({ ok: true });
+  });
+
+  socket.on('requestNewGame', ({ room, state } = {}, callback = () => {}) => {
+    const code = String(room || '').toUpperCase();
+    const game = rooms.get(code);
+    const role = game && roleOf(game, socket.id);
+    if (!role || role.seat === 'spectator') return callback({ ok: false, error: '대전 중인 플레이어만 새 게임을 제안할 수 있어요.' });
+    if (!state || !Array.isArray(state.board) || state.board.length !== 8) return callback({ ok: false, error: '잘못된 게임 상태예요.' });
+    const other = role.seat === 'w' ? 'b' : 'w';
+    if (!game.players[other]) {
+      game.state = state; game.newGameOffer = null;
+      io.to(code).emit('stateUpdate', { room: code, state });
+      systemChat(code, game, `${role.name} 님이 새 게임을 시작했어요.`);
+      return callback({ ok: true, started: true });
+    }
+    game.newGameOffer = { seat: role.seat, state };
+    io.to(code).emit('newGameOffer', { room: code, seat: role.seat, name: role.name });
+    systemChat(code, game, `${role.name} 님이 새 게임을 제안했어요.`);
+    callback({ ok: true, started: false });
+  });
+
+  socket.on('answerNewGame', ({ room, accept } = {}, callback = () => {}) => {
+    const code = String(room || '').toUpperCase();
+    const game = rooms.get(code);
+    const role = game && roleOf(game, socket.id);
+    const offer = game?.newGameOffer;
+    if (!offer || !role || role.seat === 'spectator' || role.seat === offer.seat) return callback({ ok: false, error: '응답할 새 게임 제안이 없어요.' });
+    game.newGameOffer = null;
+    io.to(code).emit('newGameOfferClosed', { room: code });
+    if (accept) {
+      game.state = offer.state;
+      io.to(code).emit('stateUpdate', { room: code, state: offer.state });
+      systemChat(code, game, `${role.name} 님이 수락해서 새 게임을 시작했어요.`);
+      if (game.visibility === 'public') broadcastRoomList();
+    } else systemChat(code, game, `${role.name} 님이 새 게임 제안을 거절했어요.`);
+    callback({ ok: true });
   });
 
   socket.on('disconnect', () => {
@@ -169,6 +241,9 @@ io.on('connection', socket => {
       if (game.spectators?.delete(socket.id) && game.visibility === 'public') publicChanged = true;
       for (const seat of ['w', 'b']) {
         if (game.players[seat] === socket.id) {
+          const leftName = game.names[seat];
+          if (game.newGameOffer?.seat === seat) { game.newGameOffer = null; io.to(code).emit('newGameOfferClosed', { room: code }); }
+          systemChat(code, game, `${leftName || '플레이어'} 님이 나갔어요.`);
           game.players[seat] = null;
           game.names[seat] = null;
           socket.to(code).emit('playerLeft', { seat });
