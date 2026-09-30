@@ -159,6 +159,13 @@
       toast(result.started?'상대가 없어 바로 새 게임을 시작했어요.':'새 게임을 제안했어요. 상대의 수락을 기다려요.');
     });
   };
+  requestResign = () => {
+    if (!socket || !room) { if (game.over) return toast('이미 끝난 게임이에요.'); if (confirm(`${colorName(game.turn)}이 항복할까요?`)) resign(game.turn); return; }
+    if (seat==='spectator') return toast('관전 중에는 항복할 수 없어요.');
+    if (game.over) return toast('이미 끝난 게임이에요.');
+    if (!confirm('정말 항복할까요? 상대의 승리로 게임이 끝나요.')) return;
+    socket.emit('resign',{room},result=>{ if(!result?.ok) toast(result?.error||'항복하지 못했어요.'); });
+  };
   const answerOffer = accept => { hideOffer(); socket?.emit('answerNewGame',{room,accept},result=>{ if(!result?.ok) toast(result?.error||'응답하지 못했어요.'); }); };
   document.querySelector('#acceptNewGame').onclick=()=>answerOffer(true);
   document.querySelector('#declineNewGame').onclick=()=>answerOffer(false);

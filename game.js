@@ -15,6 +15,18 @@ let canPlayerInteract = () => true;
 // 온라인 방에서는 multiplayer-v3.js가 닉네임을 붙이고, 새 게임을 상대 동의 절차로 바꾼다.
 let playerLabel = color => colorName(color);
 let requestNewGame = () => { if (confirm('새 게임을 시작할까요?')) freshGame(); };
+// 한 기기 대전에서는 차례인 쪽이 항복한다. 온라인 방에서는 multiplayer-v3.js가 서버 이벤트로 바꾼다.
+let requestResign = () => {
+  if (game.over) return toast('이미 끝난 게임이에요.');
+  if (confirm(`${colorName(game.turn)}이 항복할까요?`)) resign(game.turn);
+};
+
+function resign(color) {
+  if (game.over) return;
+  selected=null; targets=[]; swapFirst=null; forcedPawnSquare=null; game.lastMove=null;
+  addLog(`🏳 ${who(color)}: 항복`);
+  endGame(`${colorName(ChessRules.opposite(color))} 승리 · ${who(color)} 항복`);
+}
 
 const pieceNames = { K:'킹', Q:'퀸', R:'룩', B:'비숍', N:'나이트', P:'폰' };
 function sqName(r,c) { return String.fromCharCode(97+c)+(8-r); }
@@ -397,7 +409,7 @@ function render() {
   document.querySelector('#deckCount').textContent=`DRAW · ${game.deck}`;
   const card=activeCard(), area=document.querySelector('#cardArea'); area.className=card?'card':'empty'; area.innerHTML=card?`<span class="icon">${card.icon}</span><strong>${card.name}</strong><small>${card.desc} · ${ChessCards.percentLabel(card)}</small>`:'카드를 뽑으면 효과가 공개돼요.';
   const myTurn=canPlayerInteract();
-  document.querySelector('#cardState').textContent=card?'1 CARD':'READY'; document.querySelector('#draw').disabled=game.drawn||game.over||!myTurn;
+  document.querySelector('#cardState').textContent=card?'1 CARD':'READY'; document.querySelector('#draw').disabled=game.drawn||game.over||!myTurn; document.querySelector('#resign').disabled=game.over;
   const use=document.querySelector('#useCard'); use.disabled=!game.drawn||!!game.activeKind||game.over||!myTurn; use.textContent=!myTurn?'상대 차례예요':!game.drawn?'카드를 먼저 뽑으세요':game.activeKind?'효과 진행 중':'카드 사용하기';
   document.querySelector('#boardHint').textContent=game.over?game.result:!myTurn?'상대의 행동을 기다리는 중이에요.':selected?`${colorName(game.board[selected[0]][selected[1]].color)} ${game.board[selected[0]][selected[1]].type} · ${swapFirst?`바꿀 수 있는 짝 ${targets.length}개`:`가능한 수 ${targets.length}개`}`:game.activeKind?effectHelp(game.activeKind):game.drawn?'공개된 카드를 사용하세요.':(status.check?'체크를 해소해야 합니다.':'카드를 뽑으세요.');
   const resultOverlay=document.querySelector('#resultOverlay');
@@ -410,7 +422,7 @@ function render() {
 }
 
 document.querySelector('#draw').onclick=drawCard; document.querySelector('#useCard').onclick=useCard;
-document.querySelector('#flip').onclick=()=>{orient=!orient;render()}; document.querySelector('#newGame').onclick=()=>requestNewGame();
+document.querySelector('#flip').onclick=()=>{orient=!orient;render()}; document.querySelector('#newGame').onclick=()=>requestNewGame(); document.querySelector('#resign').onclick=()=>requestResign();
 document.querySelector('#modalClose').onclick=()=>document.querySelector('#modal').classList.remove('open');
 document.querySelector('#resultClose').onclick=()=>{hiddenResult=game.result;document.querySelector('#resultOverlay').classList.remove('open')};
 function renderOdds() {

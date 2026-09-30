@@ -234,6 +234,26 @@ io.on('connection', socket => {
     callback({ ok: true });
   });
 
+  // 항복은 차례와 상관없이 할 수 있어야 해서 stateUpdate와 따로 서버가 판을 끝낸다.
+  socket.on('resign', ({ room } = {}, callback = () => {}) => {
+    const code = String(room || '').toUpperCase();
+    const game = rooms.get(code);
+    const role = game && roleOf(game, socket.id);
+    if (!role || role.seat === 'spectator') return callback({ ok: false, error: '대전 중인 플레이어만 항복할 수 있어요.' });
+    const state = game.state;
+    if (!state || state.over) return callback({ ok: false, error: '이미 끝난 게임이에요.' });
+    const color = ['w', 'b'].find(c => (state.ownerByColor?.[c] || c) === role.seat) || role.seat;
+    const colorName = c => c === 'w' ? '흰색' : '검은색';
+    const winner = color === 'w' ? 'b' : 'w';
+    const label = `${role.name}(${colorName(color)})`;
+    game.state = { ...state, over: true, result: `${colorName(winner)} 승리 · ${label} 항복`, drawn: false, cardId: null, activeKind: null, movesLeft: 0, lastMove: null,
+      log: [{ n: state.moveNo || 1, m: `🏆 ${colorName(winner)} 승리 · ${label} 항복` }, { n: state.moveNo || 1, m: `🏳 ${label}: 항복` }, ...(state.log || [])].slice(0, 200) };
+    io.to(code).emit('stateUpdate', { room: code, state: game.state });
+    systemChat(code, game, `${role.name} 님이 항복했어요.`);
+    if (game.visibility === 'public') broadcastRoomList();
+    callback({ ok: true });
+  });
+
   socket.on('disconnect', () => {
     waitingMatches.delete(socket.id);
     let publicChanged = false;
