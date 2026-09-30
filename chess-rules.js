@@ -171,10 +171,14 @@
         add(r+dr*2,c+dc*2);
       }
     }
-    return candidates.filter(move => {
+    // 평소 이동도 그대로 허용하고, 두 배 거리 수를 선택지로 더한다. 같은 칸이면 평소 수(캐슬링·앙파상 표시 포함)를 남긴다.
+    const normal = legalMoves(board, r, c, meta);
+    const doubled = candidates.filter(move => {
+      if (normal.some(n => n.to[0] === move.to[0] && n.to[1] === move.to[1])) return false;
       const applied=applyMove(board,move,meta);
       return !inCheck(applied.board,p.color,applied.meta);
     });
+    return [...normal, ...doubled];
   }
 
   function allLegalMoves(board, color, meta = {}) {

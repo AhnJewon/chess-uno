@@ -26,7 +26,7 @@ function scenarios(){
   ['폰 승격','마지막 랭크에서 승격 수가 생성됨',promo,()=>ChessRules.legalMoves(promo,1,0,{}).some(m=>m.promotion)],
   ['체크메이트','합법 수가 없고 체크면 체크메이트',mate,()=>ChessRules.status(mate,'b',{}).reason==='checkmate'],
   ['스테일메이트','합법 수가 없고 체크가 아니면 무승부',stale,()=>ChessRules.status(stale,'b',{}).reason==='stalemate'],
-  ['이동 거리 두 배','폰은 두 칸 전진·잡기, 나이트는 4×2칸, 룩은 원래 합법 이동을 사용',distance,()=>has(ChessRules.distanceMoves(distance,4,4,{}),2,4)&&has(ChessRules.distanceMoves(distance,4,4,{}),2,6)&&has(ChessRules.distanceMoves(distance,6,1,{}),2,3)&&ChessRules.distanceMoves(distance,5,5,{}).length===ChessRules.legalMoves(distance,5,5,{}).length],
+  ['이동 거리 두 배','평소 이동에 더해 폰은 두 칸 전진·잡기, 나이트는 4×2칸, 룩은 원래 합법 이동과 같음',distance,()=>has(ChessRules.distanceMoves(distance,4,4,{}),2,4)&&has(ChessRules.distanceMoves(distance,4,4,{}),2,6)&&has(ChessRules.distanceMoves(distance,6,1,{}),2,3)&&has(ChessRules.distanceMoves(distance,6,1,{}),4,2)&&ChessRules.distanceMoves(distance,5,5,{}).length===ChessRules.legalMoves(distance,5,5,{}).length],
   ['두 배 킹 도약','킹은 중간 칸을 뛰어넘지만 공격받는 도착 칸에는 갈 수 없음',blockedDistance,()=>has(ChessRules.distanceMoves(blockedDistance,7,4,{}),5,4)&&!has(ChessRules.distanceMoves(blockedDistance,7,4,{}),7,2)],
   ['카드 체크메이트 탈출','일반 체크메이트 자리도 거리 두 배 킹으로 탈출 가능',cardMate,()=>ChessRules.status(cardMate,'w',{}).reason==='checkmate'&&has(ChessRules.distanceMoves(cardMate,7,4,{}),7,2)],
   ['군대 전체 반전','보드의 모든 흰 기물과 검은 기물이 서로 뒤바뀜',swappedArmies,()=>swappedArmies[7][4].color==='b'&&swappedArmies[0][4].color==='w'],

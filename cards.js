@@ -6,7 +6,7 @@
   // weight는 상대값. 화면의 %는 여기서 계산하니 확률은 이 표만 고치면 된다.
   const cards = [
     { id:'move', icon:'♟', name:'한 수 이동', desc:'정식 체스 규칙으로 한 번 움직여요', kind:'move', weight:50 },
-    { id:'distance', icon:'↟', name:'이동 거리 두 배', desc:'모든 기물을 선택하고 폰·나이트·킹의 거리를 두 배로 만들어요', kind:'distance', weight:11 },
+    { id:'distance', icon:'↟', name:'이동 거리 두 배', desc:'평소처럼 움직이거나, 폰·나이트·킹은 두 배 거리로도 움직일 수 있어요', kind:'distance', weight:11 },
     { id:'pawnTwice', icon:'♟²', name:'폰 두 번 이동', desc:'같은 폰으로 최대 두 번 연속 이동해요', kind:'pawnTwice', weight:8 },
     { id:'skip', icon:'⊘', name:'내 턴 스킵', desc:'이번 내 차례를 즉시 넘겨요. 체크 중에 뽑으면 패배해요', kind:'skip', weight:5 },
     { id:'ownSwap', icon:'⇆', name:'아군 자리 바꾸기', desc:'킹을 제외한 내 기물 두 개의 위치를 바꿔요', kind:'ownSwap', weight:5 },

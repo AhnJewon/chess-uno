@@ -73,10 +73,11 @@ test('detects checkmate and stalemate', () => {
   assert.equal(R.status(stale, 'b', {}).reason, 'stalemate');
 });
 
-test('distance double changes knight and king reach but leaves sliders unchanged', () => {
+test('distance double adds doubled knight and king reach, keeps normal moves, leaves sliders unchanged', () => {
   const b = empty(); b[7][4] = piece('w','K'); b[0][4] = piece('b','K'); b[6][1] = piece('w','N'); b[5][5] = piece('w','R');
   assert.ok(has(R.distanceMoves(b,6,1,{}),2,3));
-  assert.equal(has(R.distanceMoves(b,6,1,{}),4,2),false);
+  assert.ok(has(R.distanceMoves(b,6,1,{}),4,2), 'normal knight move stays available');
+  assert.ok(has(R.distanceMoves(b,7,4,{}),6,4), 'normal king step stays available');
   assert.equal(R.distanceMoves(b,5,5,{}).length,R.legalMoves(b,5,5,{}).length);
   assert.ok(has(R.distanceMoves(b,7,4,{}),5,4));
 });

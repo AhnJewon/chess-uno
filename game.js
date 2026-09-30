@@ -151,7 +151,7 @@ function startEffect(kind) {
   render(); toast(fallbackMessage||effectHelp(kind)); notifyState();
 }
 
-function effectHelp(kind) { return ({move:'움직일 기물을 고르세요.',double:game.movesLeft===1?'두 번째 이동으로 반드시 체크를 해소하세요.':'첫 번째 이동은 임시 체크 상태를 허용해요.',distance:'두 배 거리로 움직일 기물을 고르세요.',pawnTwice:'두 번 움직일 폰을 고르세요.',swap:'내 기물 하나를 고른 뒤 바꿀 상대 기물을 고르세요.',ownSwap:'킹을 제외한 내 기물 두 개를 차례로 고르세요.',enemySwap:'킹을 제외한 상대 기물 두 개를 차례로 고르세요.',change:'바꿀 내 기물을 고르세요.',addPawn:'내 군대가 시작한 쪽 4개 줄에서 빈 칸을 고르세요. 반전되면 허용 구역도 바뀝니다.'})[kind]||''; }
+function effectHelp(kind) { return ({move:'움직일 기물을 고르세요.',double:game.movesLeft===1?'두 번째 이동으로 반드시 체크를 해소하세요.':'첫 번째 이동은 임시 체크 상태를 허용해요.',distance:'움직일 기물을 고르세요. 폰·나이트·킹은 두 배 거리 칸도 표시돼요.',pawnTwice:'두 번 움직일 폰을 고르세요.',swap:'내 기물 하나를 고른 뒤 바꿀 상대 기물을 고르세요.',ownSwap:'킹을 제외한 내 기물 두 개를 차례로 고르세요.',enemySwap:'킹을 제외한 상대 기물 두 개를 차례로 고르세요.',change:'바꿀 내 기물을 고르세요.',addPawn:'내 군대가 시작한 쪽 4개 줄에서 빈 칸을 고르세요. 반전되면 허용 구역도 바뀝니다.'})[kind]||''; }
 function colorName(c) { return c==='w'?'흰색':'검은색'; }
 
 function activeMoves(r,c) {
