@@ -8,13 +8,13 @@ cd "$(dirname "$0")"
 HOST=root@192.168.50.188
 CT=100
 case "${1:-}" in
-  test) DIR=/opt/stacks/chess-uno-test; COMPOSE="-f compose.test.yaml"; PORT=3211 ;;
-  prod) DIR=/opt/stacks/chess-uno;      COMPOSE="";                     PORT=3210 ;;
+  test) DIR=/opt/stacks/chess-uno-test; COMPOSE="-f compose.test.yaml"; COMPOSE_FILE=compose.test.yaml; PORT=3211 ;;
+  prod) DIR=/opt/stacks/chess-uno;      COMPOSE="";                     COMPOSE_FILE=compose.yaml;      PORT=3210 ;;
   *) echo "usage: $0 test|prod" >&2; exit 1 ;;
 esac
 
-# Dockerfile이 COPY하는 파일 + 빌드에 필요한 파일. compose 파일은 서버 것을 그대로 둔다.
-FILES="Dockerfile package.json $(sed -n 's/^COPY \(.*\) \.\/$/\1/p' Dockerfile | grep -v '^package.json$')"
+# Dockerfile이 COPY하는 파일 + 빌드에 필요한 파일 + 이 환경의 compose 파일
+FILES="Dockerfile package.json $COMPOSE_FILE $(sed -n 's/^COPY \(.*\) \.\/$/\1/p' Dockerfile | grep -v '^package.json$')"
 for f in $FILES; do [ -f "$f" ] || { echo "missing $f" >&2; exit 1; }; done
 
 STAMP=$(date +%Y%m%d-%H%M%S)

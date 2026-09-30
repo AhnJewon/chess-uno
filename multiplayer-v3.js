@@ -16,6 +16,19 @@
   localStorage.setItem('chessUnoNickname', nicknameInput.value);
   nicknameInput.addEventListener('input', () => localStorage.setItem('chessUnoNickname', nicknameInput.value.trim().slice(0, 20)));
 
+  // 랭킹용 플레이어 ID. 닉네임과 달리 바뀌지 않고, 빠른 매칭 기록이 이 ID로 쌓인다.
+  const playerId = (() => {
+    try {
+      let id = localStorage.getItem('chessUnoPlayerId');
+      if (!/^[A-Za-z0-9]{16,40}$/.test(id || '')) {
+        const bytes = new Uint8Array(12); crypto.getRandomValues(bytes);
+        id = [...bytes].map(b => b.toString(36).padStart(2, '0')).join('');
+        localStorage.setItem('chessUnoPlayerId', id);
+      }
+      return id;
+    } catch { return null; }
+  })();
+
   const nickname = () => {
     const value = nicknameInput.value.replace(/\s+/g, ' ').trim().slice(0, 20) || `기사${Math.floor(1000 + Math.random() * 9000)}`;
     nicknameInput.value = value;
@@ -93,6 +106,7 @@
     applying=true;game=next;selected=null;targets=[];swapFirst=null;forcedPawnSquare=null;
     if(game.result!==previousResult){hiddenResult='';celebratedResult='';}
     lastSent=JSON.stringify(game);render();applying=false;
+    if(!game.over) document.querySelector('#ratingDelta').textContent='';
   }
 
   function enter(result, message) {
@@ -166,6 +180,29 @@
     if (!confirm('정말 항복할까요? 상대의 승리로 게임이 끝나요.')) return;
     socket.emit('resign',{room},result=>{ if(!result?.ok) toast(result?.error||'항복하지 못했어요.'); });
   };
+  // 랭킹 팝업
+  const rankModal = document.querySelector('#rankModal');
+  const renderRanking = data => {
+    const rows=document.querySelector('#rankRows'), me=data?.me;
+    rows.replaceChildren();
+    if (!data?.top?.length) { const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.className='empty';td.textContent='아직 기록이 없어요. 빠른 매칭으로 첫 기록을 남겨 보세요.';tr.appendChild(td);rows.appendChild(tr); }
+    (data?.top||[]).forEach(p=>{
+      const tr=document.createElement('tr'); if (me?.rank===p.rank) tr.className='me';
+      [`${p.rank}`,p.name,`${p.rating}`,`${p.wins}승 ${p.losses}패${p.draws?` ${p.draws}무`:''}`].forEach(text=>{const td=document.createElement('td');td.textContent=text;tr.appendChild(td);});
+      rows.appendChild(tr);
+    });
+    document.querySelector('#rankMe').textContent=!me?'이 브라우저에서는 랭킹 기록을 쓸 수 없어요.':me.games?`내 기록 · ${me.rank}위 / ${me.total}명 · 레이팅 ${me.rating} · ${me.wins}승 ${me.losses}패${me.draws?` ${me.draws}무`:''}`:`아직 랭킹 판이 없어요 · 시작 레이팅 ${me.rating}`;
+  };
+  const closeRanking = () => rankModal.classList.remove('open');
+  document.querySelector('#rankOpen').onclick=()=>{
+    rankModal.classList.add('open'); document.querySelector('#rankMe').textContent='불러오는 중…';
+    if (socket?.connected) socket.emit('getRanking',{playerId},renderRanking);
+    else fetch('/api/leaderboard').then(r=>r.json()).then(top=>renderRanking({top,me:null})).catch(()=>renderRanking(null));
+  };
+  document.querySelector('#rankClose').onclick=closeRanking;
+  rankModal.onclick=event=>{ if(event.target===rankModal) closeRanking(); };
+  document.addEventListener('keydown',event=>{ if(event.key==='Escape') closeRanking(); });
+
   const answerOffer = accept => { hideOffer(); socket?.emit('answerNewGame',{room,accept},result=>{ if(!result?.ok) toast(result?.error||'응답하지 못했어요.'); }); };
   document.querySelector('#acceptNewGame').onclick=()=>answerOffer(true);
   document.querySelector('#declineNewGame').onclick=()=>answerOffer(false);
@@ -197,7 +234,7 @@
     if(!socket)return status('서버 연결에 실패했어요.');
     if(searching)return socket.emit('cancelQuickMatch',()=>{setSearching(false);status('빠른 매칭을 취소했어요.')});
     setSearching(true);status(`${nickname()} 님의 상대를 찾는 중…`);
-    socket.emit('quickMatch',{state:game,nickname:nickname()},result=>{
+    socket.emit('quickMatch',{state:game,nickname:nickname(),playerId},result=>{
       if(!result?.ok){setSearching(false);return status(result?.error||'매칭을 시작하지 못했어요.');}
       if(result.status==='matched')enter(result,'빠른 매칭 ');
     });
@@ -230,5 +267,12 @@
       offerBar.classList.add('open');
     });
     socket.on('newGameOfferClosed',payload=>{ if(payload?.room===room) hideOffer(); });
+    socket.on('ratingResult',payload=>{
+      if (payload?.room!==room) return;
+      const line = s => { const c=payload.changes[s]; return `${payload.names[s]} ${c.before} → ${c.after} (${c.delta>=0?'+':''}${c.delta})`; };
+      const text = seat==='w'||seat==='b' ? `레이팅 ${line(seat).replace(`${payload.names[seat]} `,'')}` : `${line('w')} · ${line('b')}`;
+      document.querySelector('#ratingDelta').textContent=`🏆 ${text}`;
+      toast(`🏆 ${text}`);
+    });
   }
 })();

@@ -5,3 +5,8 @@ services:
     restart: unless-stopped
     ports:
       - "3211:3000"
+    volumes:
+      - chess-uno-test-data:/app/data
+
+volumes:
+  chess-uno-test-data:

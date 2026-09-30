@@ -1,16 +1,22 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const path = require('path');
+const ratings = require('./ratings');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 const rooms = new Map();
 const waitingMatches = new Map();
+const ratingStore = ratings.createStore(path.join(process.env.DATA_DIR || path.join(__dirname, 'data'), 'ratings.json'));
+// 이보다 일찍 끝난 빠른 매칭 판은 랭킹에 넣지 않는다(양쪽이 두 턴씩은 두어야 함).
+const MIN_RATED_MOVE = 5;
 app.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 app.get('/', (_req, res) => res.sendFile(__dirname + '/game.html'));
 app.get('/debug-play.html', (_req, res) => res.sendFile(__dirname + '/game.html'));
 app.get('/api/rooms', (_req, res) => res.json(publicRoomList()));
+app.get('/api/leaderboard', (_req, res) => res.json(ratingStore.leaderboard(20)));
 app.use(express.static(__dirname));
 app.get('/health', (_req, res) => res.json({ ok: true, rooms: rooms.size, waiting: waitingMatches.size }));
 
@@ -38,6 +44,9 @@ function makeRoom(hostId, state, options = {}) {
     mode: options.mode || 'code',
     chat: [],
     newGameOffer: null,
+    pids: { w: null, b: null },
+    rated: false,
+    ratedDone: false,
     createdAt: Date.now()
   });
   return code;
@@ -65,6 +74,37 @@ function pushChat(code, room, entry) {
 }
 
 function systemChat(code, room, text) { pushChat(code, room, { seat: 'system', name: '', text }); }
+
+const colorName = c => c === 'w' ? '흰색' : '검은색';
+const colorOfSeat = (state, seat) => ['w', 'b'].find(c => (state?.ownerByColor?.[c] || c) === seat) || seat;
+
+// 빠른 매칭 판이 끝나면 한 번만 레이팅을 반영하고 결과를 방에 알린다.
+function finishRated(code, room) {
+  const state = room.state;
+  if (!room.rated || room.ratedDone || !state?.over) return;
+  room.ratedDone = true;
+  if ((state.moveNo || 1) < MIN_RATED_MOVE) return systemChat(code, room, '너무 일찍 끝난 판이라 랭킹에 반영하지 않았어요.');
+  const result = String(state.result || '');
+  const winnerColor = result.includes('흰색 승리') ? 'w' : result.includes('검은색 승리') ? 'b' : null;
+  const winnerSeat = winnerColor ? (state.ownerByColor?.[winnerColor] || winnerColor) : null;
+  const change = ratingStore.recordGame({ id: room.pids.w, name: room.names.w }, { id: room.pids.b, name: room.names.b }, winnerSeat === 'w' ? 'a' : winnerSeat === 'b' ? 'b' : 'draw');
+  const changes = { w: change.a, b: change.b };
+  io.to(code).emit('ratingResult', { room: code, changes, names: { ...room.names } });
+  const line = seat => `${room.names[seat]} ${changes[seat].before}→${changes[seat].after} (${changes[seat].delta >= 0 ? '+' : ''}${changes[seat].delta})`;
+  systemChat(code, room, `🏆 랭킹 반영: ${line('w')}, ${line('b')}`);
+}
+
+// 레이팅 판에서 한쪽이 나가면 남은 쪽의 기권승으로 끝낸다.
+function forfeitOnLeave(code, room, seat) {
+  const state = room.state;
+  if (!room.rated || room.ratedDone || !state || state.over || (state.moveNo || 1) < MIN_RATED_MOVE) return;
+  const loser = colorOfSeat(state, seat), winner = loser === 'w' ? 'b' : 'w';
+  const text = `${colorName(winner)} 승리 · ${room.names[seat]}(${colorName(loser)}) 님이 나가 기권패`;
+  room.state = { ...state, over: true, result: text, drawn: false, cardId: null, activeKind: null, movesLeft: 0,
+    log: [{ n: state.moveNo || 1, m: `🏆 ${text}` }, ...(state.log || [])].slice(0, 200) };
+  io.to(code).emit('stateUpdate', { room: code, state: room.state });
+  finishRated(code, room);
+}
 
 function publicRoomList() {
   return [...rooms.entries()]
@@ -105,17 +145,21 @@ io.on('connection', socket => {
     if (visibility === 'public') broadcastRoomList();
   });
 
-  socket.on('quickMatch', ({ state, nickname } = {}, callback = () => {}) => {
+  socket.on('quickMatch', ({ state, nickname, playerId } = {}, callback = () => {}) => {
     waitingMatches.delete(socket.id);
+    const pid = ratings.isPlayerId(playerId) ? playerId : null;
     const opponent = takeWaitingOpponent(socket.id);
     if (!opponent) {
-      waitingMatches.set(socket.id, { state, nickname: cleanText(nickname, '플레이어') });
+      waitingMatches.set(socket.id, { state, nickname: cleanText(nickname, '플레이어'), pid });
       return callback({ ok: true, status: 'waiting' });
     }
     const code = makeRoom(opponent.otherSocket.id, opponent.entry.state || state, { mode: 'quick', nickname: opponent.entry.nickname });
     const room = rooms.get(code);
     room.players.b = socket.id;
     room.names.b = cleanText(nickname, '플레이어 2');
+    room.pids = { w: opponent.entry.pid, b: pid };
+    // 같은 브라우저끼리(탭 두 개) 매칭된 판은 랭킹에 넣지 않는다.
+    room.rated = Boolean(room.pids.w && room.pids.b && room.pids.w !== room.pids.b);
     opponent.otherSocket.join(code); socket.join(code);
     const info = roomInfo(code, room);
     opponent.otherSocket.emit('matchFound', { ok: true, room: code, seat: 'w', state: room.state, info, chat: room.chat });
@@ -184,7 +228,10 @@ io.on('connection', socket => {
     game.state = state;
     socket.to(code).emit('stateUpdate', { room: code, state });
     if (overChanged && game.visibility === 'public') broadcastRoomList();
+    if (overChanged && state.over) finishRated(code, game);
   });
+
+  socket.on('getRanking', ({ playerId } = {}, callback = () => {}) => callback({ ok: true, top: ratingStore.leaderboard(20), me: ratingStore.stats(playerId) }));
 
   // 참가자와 관전자 모두 채팅할 수 있다.
   socket.on('chat', ({ room, text } = {}, callback = () => {}) => {
@@ -206,7 +253,7 @@ io.on('connection', socket => {
     if (!state || !Array.isArray(state.board) || state.board.length !== 8) return callback({ ok: false, error: '잘못된 게임 상태예요.' });
     const other = role.seat === 'w' ? 'b' : 'w';
     if (!game.players[other]) {
-      game.state = state; game.newGameOffer = null;
+      game.state = state; game.newGameOffer = null; game.rated = false;
       io.to(code).emit('stateUpdate', { room: code, state });
       systemChat(code, game, `${role.name} 님이 새 게임을 시작했어요.`);
       return callback({ ok: true, started: true });
@@ -226,7 +273,7 @@ io.on('connection', socket => {
     game.newGameOffer = null;
     io.to(code).emit('newGameOfferClosed', { room: code });
     if (accept) {
-      game.state = offer.state;
+      game.state = offer.state; game.ratedDone = false;
       io.to(code).emit('stateUpdate', { room: code, state: offer.state });
       systemChat(code, game, `${role.name} 님이 수락해서 새 게임을 시작했어요.`);
       if (game.visibility === 'public') broadcastRoomList();
@@ -250,6 +297,7 @@ io.on('connection', socket => {
       log: [{ n: state.moveNo || 1, m: `🏆 ${colorName(winner)} 승리 · ${label} 항복` }, { n: state.moveNo || 1, m: `🏳 ${label}: 항복` }, ...(state.log || [])].slice(0, 200) };
     io.to(code).emit('stateUpdate', { room: code, state: game.state });
     systemChat(code, game, `${role.name} 님이 항복했어요.`);
+    finishRated(code, game);
     if (game.visibility === 'public') broadcastRoomList();
     callback({ ok: true });
   });
@@ -264,6 +312,8 @@ io.on('connection', socket => {
           const leftName = game.names[seat];
           if (game.newGameOffer?.seat === seat) { game.newGameOffer = null; io.to(code).emit('newGameOfferClosed', { room: code }); }
           systemChat(code, game, `${leftName || '플레이어'} 님이 나갔어요.`);
+          forfeitOnLeave(code, game, seat);
+          game.rated = false;
           game.players[seat] = null;
           game.names[seat] = null;
           socket.to(code).emit('playerLeft', { seat });

@@ -14,8 +14,9 @@
 | `game.js` / `game.html` | 카드 효과·보드 UI, 플레이 방법 팝업(첫 방문 시 자동, 카드 목록은 cards.js에서 생성) |
 | `multiplayer-v3.js` | 닉네임, 빠른 매칭, 공개 방 목록, 방 코드, 관전, 채팅, 새 게임 제안·수락, 항복 |
 | `server.js` | Express + Socket.IO 방 서버 (방별 채팅 60개 보관, 진행 중인 판 되돌리기 거부) |
+| `ratings.js` | 빠른 매칭 랭킹(Elo, K=32, 1000점 시작). 도커 볼륨의 `/app/data/ratings.json`에 저장 |
 | `debug.html` / `debug.js` | 브라우저 규칙 테스트, 카드 골라 쓰기(`/debug-play.html?card=<id>`) |
-| `test/` | `node --test` 규칙 테스트 |
+| `test/` | `node --test` 규칙·레이팅 테스트 |
 | `legacy/` | 초기 단일 파일 프로토타입 (배포 안 함) |
 
 ## 실행
@@ -33,7 +34,7 @@ npm test
 ./deploy.sh prod   # 운영 (기존 운영본은 /opt/stacks/chess-uno-backup-<시각> 으로 백업)
 ```
 
-Proxmox 호스트(192.168.50.188)에 SSH 키로 접속해 LXC 100 안의 docker compose 스택을 다시 빌드한다. 스테이징에서 먼저 확인한 뒤 운영에 반영한다.
+Proxmox 호스트(192.168.50.188)에 SSH 키로 접속해 LXC 100 안의 docker compose 스택을 다시 빌드한다. compose 파일도 이 저장소 것이 올라간다. 랭킹 데이터는 운영(`chess-uno_chess-uno-data`)과 스테이징(`chess-uno-test_chess-uno-test-data`) 볼륨이 따로라 재배포해도 남는다. 스테이징에서 먼저 확인한 뒤 운영에 반영한다.
 
 카드 확률은 `cards.js`의 `weight`만 고치면 게임 화면과 디버그 페이지의 %가 같이 바뀐다.
 정적 파일은 `?v=` 쿼리로 캐시를 끊으니 JS를 고치면 `game.html`/`debug.html`의 버전 값도 올린다. 새 JS 파일을 추가하면 `Dockerfile`의 `COPY` 목록에도 넣는다.

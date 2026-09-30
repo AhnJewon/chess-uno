@@ -5,9 +5,14 @@ services:
     restart: unless-stopped
     ports:
       - "3210:3000"
+    volumes:
+      - chess-uno-data:/app/data
     networks:
       - default
       - npm_proxy
+
+volumes:
+  chess-uno-data:
 
 networks:
   npm_proxy:
