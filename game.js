@@ -211,21 +211,46 @@ function addPawnAt(r,c,p) {
   finishTurn(`♟ ${colorName(game.turn)}의 폰을 자기 진영에 추가했어요.`);
 }
 
+function inCheckNow() { return ChessRules.inCheck(game.board,game.turn,game.meta); }
+
+function swapTrial(a,b) {
+  const board=ChessRules.copyBoard(game.board); [board[a[0]][a[1]],board[b[0]][b[1]]]=[board[b[0]][b[1]],board[a[0]][a[1]]];
+  if (ChessRules.inCheck(board,game.turn,game.meta)) return { ok:false, reason:inCheckNow()?'그 교환으로는 체크가 풀리지 않아요. 다시 고르세요.':'그 교환은 내 킹을 체크 상태로 만들어요. 다시 고르세요.' };
+  if (ChessRules.hasStrandedPawn(board,game.meta)) return { ok:false, reason:'폰을 승격 줄로 옮기는 교환은 할 수 없어요. 다시 고르세요.' };
+  return { ok:true, board };
+}
+
+// 첫 기물과 바꿀 수 있는 짝(판에 표시할 칸)
+function swapPartners(kind,r,c) {
+  const [,secondColor]=swapGroups(kind), out=[];
+  for (let rr=0;rr<8;rr++) for (let cc=0;cc<8;cc++) {
+    const q=game.board[rr][cc];
+    if (!q || q.color!==secondColor || q.type==='K' || (rr===r&&cc===c)) continue;
+    if (swapTrial([r,c],[rr,cc]).ok) out.push([rr,cc]);
+  }
+  return out;
+}
+
 function handleSwap(r,c,p) {
   const kind=game.activeKind,[firstColor,secondColor]=swapGroups(kind);
   const firstLabel=firstColor===game.turn?'내':'상대';
   const secondLabel=secondColor===game.turn?'내':'상대';
+  const pickFirst=(rr,cc)=>{
+    swapFirst=[rr,cc]; selected=[rr,cc]; targets=swapPartners(kind,rr,cc).map(to=>({to})); render();
+    if (!targets.length) { swapFirst=null; selected=null; render(); return toast(inCheckNow()?'그 기물로는 어떤 교환을 해도 체크가 풀리지 않아요. 다른 기물을 골라 주세요.':'그 기물과 바꿀 수 있는 짝이 없어요. 다른 기물을 골라 주세요.'); }
+    return toast(`표시된 ${secondLabel} 기물 중에서 바꿀 짝을 고르세요. 같은 기물을 다시 누르면 취소돼요.`);
+  };
   if (!swapFirst) {
     if (p?.color!==firstColor || p.type==='K') return toast(`먼저 킹을 제외한 ${firstLabel} 기물을 골라 주세요.`);
-    swapFirst=[r,c]; selected=[r,c]; render(); return toast(`위치를 바꿀 ${secondLabel} 기물을 고르세요.`);
+    return pickFirst(r,c);
   }
-  if (r===swapFirst[0]&&c===swapFirst[1]) return toast('서로 다른 기물 두 개를 골라 주세요.');
-  if (firstColor!==secondColor && p?.color===firstColor && p.type!=='K') { swapFirst=[r,c];selected=[r,c];render();return toast(`${firstLabel} 기물을 다시 골랐어요. 이제 ${secondLabel} 기물을 고르세요.`); }
+  if (r===swapFirst[0]&&c===swapFirst[1]) { swapFirst=null; selected=null; targets=[]; render(); return toast('선택을 취소했어요. 다시 고르세요.'); }
+  const partner=targets.some(t=>t.to[0]===r&&t.to[1]===c);
+  if (!partner && p?.color===firstColor && p.type!=='K') return pickFirst(r,c);
   if (!p || p.color!==secondColor || p.type==='K') return toast(`킹을 제외한 ${secondLabel} 기물을 골라 주세요.`);
-  const trial=ChessRules.copyBoard(game.board); [trial[swapFirst[0]][swapFirst[1]],trial[r][c]]=[trial[r][c],trial[swapFirst[0]][swapFirst[1]]];
-  if (ChessRules.inCheck(trial,game.turn,game.meta)) return toast('그 교환은 킹을 체크 상태로 만들어요.');
-  if (ChessRules.hasStrandedPawn(trial,game.meta)) return toast('폰을 승격 줄로 옮기는 교환은 할 수 없어요.');
-  game.board=trial; swapFirst=null;
+  const trial=swapTrial(swapFirst,[r,c]);
+  if (!trial.ok) { swapFirst=null; selected=null; targets=[]; render(); return toast(trial.reason); }
+  game.board=trial.board; swapFirst=null; targets=[];
   const message=kind==='ownSwap'?'⇆ 내 기물 두 개의 위치를 바꿨어요.':kind==='enemySwap'?'⥄ 상대 기물 두 개의 위치를 바꿨어요.':'⇄ 내 기물과 상대 기물의 위치를 바꿨어요.';
   finishTurn(message);
 }
@@ -338,7 +363,7 @@ function render() {
   const myTurn=canPlayerInteract();
   document.querySelector('#cardState').textContent=card?'1 CARD':'READY'; document.querySelector('#draw').disabled=game.drawn||game.over||!myTurn;
   const use=document.querySelector('#useCard'); use.disabled=!game.drawn||!!game.activeKind||game.over||!myTurn; use.textContent=!myTurn?'상대 차례예요':!game.drawn?'카드를 먼저 뽑으세요':game.activeKind?'효과 진행 중':'카드 사용하기';
-  document.querySelector('#boardHint').textContent=game.over?game.result:!myTurn?'상대의 행동을 기다리는 중이에요.':selected?`${colorName(game.board[selected[0]][selected[1]].color)} ${game.board[selected[0]][selected[1]].type} · 가능한 수 ${targets.length}개`:game.activeKind?effectHelp(game.activeKind):game.drawn?'공개된 카드를 사용하세요.':(status.check?'체크를 해소해야 합니다.':'카드를 뽑으세요.');
+  document.querySelector('#boardHint').textContent=game.over?game.result:!myTurn?'상대의 행동을 기다리는 중이에요.':selected?`${colorName(game.board[selected[0]][selected[1]].color)} ${game.board[selected[0]][selected[1]].type} · ${swapFirst?`바꿀 수 있는 짝 ${targets.length}개`:`가능한 수 ${targets.length}개`}`:game.activeKind?effectHelp(game.activeKind):game.drawn?'공개된 카드를 사용하세요.':(status.check?'체크를 해소해야 합니다.':'카드를 뽑으세요.');
   const resultOverlay=document.querySelector('#resultOverlay');
   if (game.over && game.result && hiddenResult!==game.result) {
     document.querySelector('#resultTitle').textContent=resultHeading(game.result);
