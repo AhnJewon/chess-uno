@@ -242,7 +242,7 @@ io.on('connection', socket => {
     if (overChanged && state.over) finishRated(code, game);
   });
 
-  socket.on('getRanking', ({ playerId } = {}, callback = () => {}) => callback({ ok: true, top: ratingStore.leaderboard(20), me: ratingStore.stats(playerId) }));
+  socket.on('getRanking', ({ playerId } = {}, callback = () => {}) => callback({ ok: true, season: ratingStore.seasonInfo(), top: ratingStore.leaderboard(20), me: ratingStore.stats(playerId) }));
 
   // 참가자와 관전자 모두 채팅할 수 있다.
   socket.on('chat', ({ room, text } = {}, callback = () => {}) => {

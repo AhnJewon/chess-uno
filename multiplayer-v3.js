@@ -183,7 +183,13 @@
   // 랭킹 팝업
   const rankModal = document.querySelector('#rankModal');
   const renderRanking = data => {
-    const rows=document.querySelector('#rankRows'), me=data?.me;
+    const rows=document.querySelector('#rankRows'), me=data?.me, season=data?.season;
+    document.querySelector('#rankTitle').textContent=`🏆 빠른 매칭 랭킹${season?` · ${season.label}`:''}`;
+    const seasonLine=document.querySelector('#rankSeason'); seasonLine.replaceChildren();
+    if (season?.last?.top?.length) {
+      const champ=season.last.top[0], label=document.createElement('b'); label.textContent=`${season.last.label} 1위`;
+      seasonLine.append('🥇 ',label,` ${champ.name} (${champ.rating})${season.last.top[1]?` · 2위 ${season.last.top[1].name}`:''}${season.last.top[2]?` · 3위 ${season.last.top[2].name}`:''}`);
+    } else if (season) seasonLine.textContent='매달 1일 0시(한국 시간)에 새 시즌이 시작돼요.';
     rows.replaceChildren();
     if (!data?.top?.length) { const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.className='empty';td.textContent='아직 기록이 없어요. 빠른 매칭으로 첫 기록을 남겨 보세요.';tr.appendChild(td);rows.appendChild(tr); }
     (data?.top||[]).forEach(p=>{

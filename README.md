@@ -14,7 +14,7 @@
 | `game.js` / `game.html` | 카드 효과·보드 UI, 플레이 방법 팝업(첫 방문 시 자동, 카드 목록은 cards.js에서 생성) |
 | `multiplayer-v3.js` | 닉네임, 빠른 매칭, 공개 방 목록, 방 코드, 관전, 채팅, 새 게임 제안·수락, 항복 |
 | `server.js` | Express + Socket.IO 방 서버 (방별 채팅 60개 보관, 진행 중인 판 되돌리기 거부) |
-| `ratings.js` | 빠른 매칭 랭킹(Elo, K=32, 1000점 시작). 도커 볼륨의 `/app/data/ratings.json`에 저장 |
+| `ratings.js` | 빠른 매칭 랭킹(Elo, K=32, 1000점 시작). 매달 1일 0시(KST)에 시즌 초기화, 지난 시즌 상위 10명 보관. 도커 볼륨의 `/app/data/ratings.json`에 저장 |
 | `debug.html` / `debug.js` | 브라우저 규칙 테스트, 카드 골라 쓰기(`/debug-play.html?card=<id>`) |
 | `test/` | `node --test` 규칙·레이팅 테스트 |
 | `legacy/` | 초기 단일 파일 프로토타입 (배포 안 함) |

@@ -45,3 +45,21 @@ test('player ids must look like generated ids', () => {
   assert.equal(isPlayerId('short'), false);
   assert.equal(isPlayerId('has spaces in it 123456'), false);
 });
+
+test('seasons follow Korean months and reset ratings, keeping last season top list', () => {
+  const { seasonOf } = require('../ratings');
+  assert.equal(seasonOf(Date.parse('2026-09-30T14:59:00Z')), '2026-09'); // 23:59 KST
+  assert.equal(seasonOf(Date.parse('2026-09-30T15:00:00Z')), '2026-10'); // 00:00 KST
+  let clock = Date.parse('2026-09-20T00:00:00Z');
+  const store = createStore(tmpFile(), { now: () => clock });
+  store.recordGame(A, B, 'a');
+  assert.equal(store.seasonInfo().label, '2026년 9월 시즌');
+  clock = Date.parse('2026-10-02T00:00:00Z');
+  assert.equal(store.leaderboard().length, 0);
+  assert.equal(store.stats(A.id).rating, 1000);
+  const info = store.seasonInfo();
+  assert.equal(info.label, '2026년 10월 시즌');
+  assert.equal(info.last.label, '2026년 9월 시즌');
+  assert.equal(info.last.top[0].name, '앨리스');
+  assert.equal(info.last.top[0].rating, 1016);
+});
