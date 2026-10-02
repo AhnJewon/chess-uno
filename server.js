@@ -46,6 +46,7 @@ function makeRoom(hostId, state, options = {}) {
     chat: [],
     newGameOffer: null,
     weights: ChessCards.normalizeWeights(state?.weights),
+    skins: { w: null, b: null },
     pids: { w: null, b: null },
     rated: false,
     ratedDone: false,
@@ -55,7 +56,7 @@ function makeRoom(hostId, state, options = {}) {
 }
 
 function roomInfo(code, room) {
-  return { room: code, names: room.names, spectators: room.spectators.size };
+  return { room: code, names: room.names, skins: room.skins, spectators: room.spectators.size };
 }
 
 function emitRoomInfo(code, room) { io.to(code).emit('roomInfo', roomInfo(code, room)); }
@@ -137,6 +138,7 @@ io.on('connection', socket => {
 
   socket.on('createRoom', (payload, callback = () => {}) => {
     waitingMatches.delete(socket.id);
+    leaveRooms();
     const structured = payload && Object.prototype.hasOwnProperty.call(payload, 'state');
     const state = structured ? payload.state : payload;
     const visibility = structured ? payload.visibility : 'private';
@@ -150,6 +152,7 @@ io.on('connection', socket => {
 
   socket.on('quickMatch', ({ state, nickname, playerId } = {}, callback = () => {}) => {
     waitingMatches.delete(socket.id);
+    leaveRooms();
     const pid = ratings.isPlayerId(playerId) ? playerId : null;
     const opponent = takeWaitingOpponent(socket.id);
     if (!opponent) {
@@ -194,6 +197,7 @@ io.on('connection', socket => {
   socket.on('joinRoom', ({ room, nickname } = {}, callback = () => {}) => {
     waitingMatches.delete(socket.id);
     const code = String(room || '').toUpperCase();
+    leaveRooms(null, code);
     const game = rooms.get(code);
     if (!game) return callback({ ok: false, error: '방 코드를 찾을 수 없어요.' });
     if (game.mode === 'quick') return callback({ ok: false, error: '빠른 매칭 판은 관전만 할 수 있어요.' });
@@ -213,6 +217,7 @@ io.on('connection', socket => {
   socket.on('watchRoom', ({ room, nickname } = {}, callback = () => {}) => {
     waitingMatches.delete(socket.id);
     const code = String(room || '').toUpperCase();
+    leaveRooms(null, code);
     const game = rooms.get(code);
     if (!game) return callback({ ok: false, error: '방 코드를 찾을 수 없어요.' });
     if (!game.spectators) game.spectators = new Map();
@@ -240,6 +245,17 @@ io.on('connection', socket => {
     socket.to(code).emit('stateUpdate', { room: code, state });
     if (overChanged && game.visibility === 'public') broadcastRoomList();
     if (overChanged && state.over) finishRated(code, game);
+  });
+
+  // 플레이어 스킨은 자기 기물과 자기 진영(판 절반)에 적용되어 모두에게 보인다.
+  socket.on('setSkin', ({ room, skin } = {}) => {
+    const code = String(room || '').toUpperCase();
+    const game = rooms.get(code);
+    const role = game && roleOf(game, socket.id);
+    if (!role || role.seat === 'spectator') return;
+    const key = v => (/^[a-z]{2,16}$/i.test(String(v || '')) ? String(v) : null);
+    game.skins[role.seat] = { pieces: key(skin?.pieces) || 'unicode', board: key(skin?.board) || 'classic' };
+    emitRoomInfo(code, game);
   });
 
   socket.on('getRanking', ({ playerId } = {}, callback = () => {}) => callback({ ok: true, season: ratingStore.seasonInfo(), top: ratingStore.leaderboard(20), me: ratingStore.stats(playerId) }));
@@ -314,10 +330,12 @@ io.on('connection', socket => {
     callback({ ok: true });
   });
 
-  socket.on('disconnect', () => {
-    waitingMatches.delete(socket.id);
+  // 방에서 나가기(버튼) 와 연결 끊김이 같은 처리를 쓴다. onlyCode가 있으면 그 방만.
+  function leaveRooms(onlyCode, exceptCode) {
     let publicChanged = false;
     for (const [code, game] of rooms) {
+      if ((onlyCode && code !== onlyCode) || code === exceptCode) continue;
+      if (!roleOf(game, socket.id)) continue;
       if (game.spectators?.delete(socket.id) && game.visibility === 'public') publicChanged = true;
       for (const seat of ['w', 'b']) {
         if (game.players[seat] === socket.id) {
@@ -328,14 +346,28 @@ io.on('connection', socket => {
           game.rated = false;
           game.players[seat] = null;
           game.names[seat] = null;
+          game.skins[seat] = null;
           socket.to(code).emit('playerLeft', { seat });
           emitRoomInfo(code, game);
           if (game.visibility === 'public') publicChanged = true;
         }
       }
+      socket.leave(code);
       if (!game.players.w && !game.players.b && !game.spectators?.size) rooms.delete(code);
     }
     if (publicChanged) broadcastRoomList();
+  }
+
+  socket.on('leaveRoom', ({ room } = {}, callback = () => {}) => {
+    const code = String(room || '').toUpperCase();
+    if (!rooms.has(code)) return callback({ ok: true });
+    leaveRooms(code);
+    callback({ ok: true });
+  });
+
+  socket.on('disconnect', () => {
+    waitingMatches.delete(socket.id);
+    leaveRooms();
   });
 });
 

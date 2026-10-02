@@ -47,13 +47,18 @@
     const button=document.createElement('button');button.className='pill roomcode';button.textContent=code;button.title='방 코드 복사';button.onclick=()=>copyRoomCode(code);
     statusElement.replaceChildren(document.createTextNode(before),button,document.createTextNode(after));
   };
-  let names = { w:null, b:null };
+  let names = { w:null, b:null }, roomSkins = { w:null, b:null };
   const applyRoomInfo = info => {
     if (!info || (room && info.room !== room)) return;
     names = { ...names, ...info.names };
+    if (info.skins) { roomSkins = { ...info.skins }; render(); }
     document.querySelector('#p1Name').textContent=info.names?.w || '플레이어 1';
     document.querySelector('#p2Name').textContent=info.names?.b || '플레이어 2';
   };
+  // 방 안에서는 각 자리의 스킨으로 그린다. 내 자리는 바로 바뀌도록 내 스킨을 쓴다. 스킨 정보가 없는 상대는 기본.
+  skinOf = seatKey => !room ? skin : seatKey === seat ? skin : (roomSkins[seatKey] || { pieces:'unicode', board:'classic' });
+  onSkinChanged = () => { if (socket && room && seat !== 'spectator') socket.emit('setSkin',{ room, skin }); };
+
   // 게임 기록에 "닉네임(흰색)"으로 남긴다. 방 밖에서는 색 이름만.
   playerLabel = color => {
     const name = room && names[game.ownerByColor?.[color] || color];
@@ -116,7 +121,7 @@
     applyRoomInfo(result.info);
     if (result.state) install(result.state);
     else lastSent=JSON.stringify(game);
-    renderChat(result.chat); setChatEnabled(true); hideOffer();
+    renderChat(result.chat); setChatEnabled(true); hideOffer(); leaveButton.hidden=false; onSkinChanged();
     roomStatus(message,room,seat==='spectator'?' · 실시간 보기 전용':' · 누르면 복사돼요.');
     socket?.emit('requestRoomList');
   }
@@ -180,6 +185,24 @@
     if (!confirm('정말 항복할까요? 상대의 승리로 게임이 끝나요.')) return;
     socket.emit('resign',{room},result=>{ if(!result?.ok) toast(result?.error||'항복하지 못했어요.'); });
   };
+  // 방 나가기: 서버에 알리고, 내 화면은 혼자 두는 판으로 돌아간다.
+  const leaveButton=document.querySelector('#leaveRoom');
+  function exitRoomLocal(message) {
+    room='';seat='';lastSent='';names={w:null,b:null};roomSkins={w:null,b:null};setChatEnabled(false);hideOffer();leaveButton.hidden=true;
+    document.querySelector('#p1Name').textContent='플레이어 1';document.querySelector('#p2Name').textContent='플레이어 2';
+    document.querySelector('#ratingDelta').textContent='';
+    freshGame();
+    status(message);toast(message);socket?.emit('requestRoomList');
+  }
+  leaveButton.onclick=()=>{
+    if (!room) return;
+    const playing = seat!=='spectator' && !game.over && game.moveNo>1;
+    const question = !playing ? '방에서 나갈까요?' : seat && game.ownerByColor ? '대전 중에 나가면 상대가 이긴 걸로 처리될 수 있어요(빠른 매칭은 기권패). 나갈까요?' : '방에서 나갈까요?';
+    if (!confirm(question)) return;
+    const code=room;
+    socket.emit('leaveRoom',{room:code},()=>exitRoomLocal('방에서 나왔어요.'));
+  };
+
   // 랭킹 팝업
   const rankModal = document.querySelector('#rankModal');
   const renderRanking = data => {
@@ -290,9 +313,7 @@
     socket.on('roomInfo',applyRoomInfo);
     socket.on('roomClosed',payload=>{
       if(payload?.room!==room)return;
-      room='';seat='';lastSent='';names={w:null,b:null};setChatEnabled(false);hideOffer();
-      document.querySelector('#p1Name').textContent='플레이어 1';document.querySelector('#p2Name').textContent='플레이어 2';
-      status(payload.message||'공개 방이 닫혔어요.');toast(payload.message||'공개 방이 닫혔어요.');render();socket.emit('requestRoomList');
+      exitRoomLocal(payload.message||'공개 방이 닫혔어요.');
     });
     socket.on('stateUpdate',payload=>{
       const next=payload?.state||payload;

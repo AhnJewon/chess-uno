@@ -386,6 +386,19 @@ function choose(title,text,options,callback) {
   document.querySelector('#modal').classList.add('open');
 }
 
+// 스킨: 각자 화면에만 적용
+let skin = ChessSkins.load();
+// 자리(w/b)별 스킨. 방 밖에선 내 스킨, 방 안에선 multiplayer-v3.js가 각 플레이어 스킨을 돌려준다.
+let skinOf = seatKey => skin;
+let onSkinChanged = () => {};
+const seatOfColor = color => game.ownerByColor?.[color] || color;
+function pieceMarkup(p) {
+  const owned = skinOf(seatOfColor(p.color)) || skin;
+  const set = ChessSkins.pieceSets[owned.pieces] || ChessSkins.pieceSets.unicode;
+  if (set.render) return `<span class="svgpiece">${set.render(p.type, p.color)}</span>`;
+  return `<span class="piece ${p.color==='w'?'white':'black'}">${symbols[p.type]}</span>`;
+}
+
 function renderLog() {
   const el=document.querySelector('#log');
   el.replaceChildren(...(game.log||[]).map(entry=>{ const row=document.createElement('div'), turn=document.createElement('b'); turn.textContent=`${entry.n}턴`; row.append(turn,' ',entry.m); return row; }));
@@ -393,13 +406,15 @@ function renderLog() {
 
 function render() {
   const boardEl=document.querySelector('#board'); boardEl.innerHTML='';
+  // 판 절반은 그 진영 주인의 보드 스킨. 군대 반전이면 흰색 진영이 위로 간다.
+  const halfTheme = r => { const color=ChessRules.pawnPlacementAllowed(r,'w',!!game.meta?.colorReversed)?'w':'b'; const owned=skinOf(seatOfColor(color))||skin; return ChessSkins.boards[owned.board]||ChessSkins.boards.classic; };
   for(let vr=0;vr<8;vr++)for(let vc=0;vc<8;vc++){
     const r=orient?7-vr:vr,c=orient?7-vc:vc,p=game.board[r][c]; const b=document.createElement('button');
-    b.className=`sq ${(r+c)%2?'dark':'light'}`;
+    b.className=`sq ${(r+c)%2?'dark':'light'}`; { const t=halfTheme(r); b.style.backgroundColor=(r+c)%2?t.dark:t.light; }
     if(selected?.[0]===r&&selected?.[1]===c)b.classList.add('selected');
     if(targets.some(m=>m.to[0]===r&&m.to[1]===c))b.classList.add(p?'capture':'target');
     if(game.lastMove?.some(s=>s[0]===r&&s[1]===c))b.classList.add('last');
-    if(p)b.innerHTML=`<span class="piece ${p.color==='w'?'white':'black'}">${symbols[p.type]}</span>`;
+    if(p)b.innerHTML=pieceMarkup(p);
     b.onclick=()=>clickSquare(r,c); boardEl.appendChild(b);
   }
   renderLog(); renderOdds();
@@ -453,6 +468,46 @@ document.querySelector('#helpClose').onclick=closeHelp;
 document.querySelector('#helpDone').onclick=closeHelp;
 document.querySelector('#helpModal').onclick=event=>{ if(event.target.id==='helpModal') closeHelp(); };
 document.addEventListener('keydown',event=>{ if(event.key==='Escape'&&document.querySelector('#helpModal').classList.contains('open')) closeHelp(); });
+// 스킨 선택 팝업
+function renderSkinOptions() {
+  const sample = [['K','w'],['Q','b'],['N','w'],['P','b']];
+  const theme = ChessSkins.boards[skin.board];
+  const preview = (pieces, board) => {
+    const box=document.createElement('div'); box.className='skinpreview';
+    sample.forEach(([type,color],i)=>{ const cell=document.createElement('span'); cell.style.background=i%2?board.dark:board.light; const set=ChessSkins.pieceSets[pieces];
+      if (set.render) cell.innerHTML=set.render(type,color); else { cell.textContent=symbols[type]; cell.className=`piece ${color==='w'?'white':'black'}`; cell.style.display='grid'; }
+      box.appendChild(cell); });
+    return box;
+  };
+  const option = (label, on, pieces, board, pick) => {
+    const btn=document.createElement('button'); btn.type='button'; btn.className=`skinopt${on?' on':''}`;
+    const title=document.createElement('strong'); title.textContent=label;
+    btn.append(preview(pieces,board),title); btn.onclick=pick; return btn;
+  };
+  document.querySelector('#pieceSkins').replaceChildren(...Object.entries(ChessSkins.pieceSets).map(([key,set])=>option(set.label,skin.pieces===key,key,theme,()=>{skin.pieces=key;applySkin();})));
+  document.querySelector('#boardSkins').replaceChildren(...Object.entries(ChessSkins.boards).map(([key,board])=>option(board.label,skin.board===key,skin.pieces,board,()=>{skin.board=key;applySkin();})));
+}
+function applySkin() { ChessSkins.save(skin); onSkinChanged(); render(); renderSkinOptions(); }
+const skinModal=document.querySelector('#skinModal');
+document.querySelector('#skinOpen').onclick=()=>{ renderSkinOptions(); skinModal.classList.add('open'); };
+document.querySelector('#skinClose').onclick=()=>skinModal.classList.remove('open');
+skinModal.onclick=event=>{ if(event.target===skinModal) skinModal.classList.remove('open'); };
+
+// 업데이트 내역 팝업. 마지막으로 본 날짜보다 새 항목이 있으면 NEW 표시.
+const logModal=document.querySelector('#logModal'), latestLog=ChessChangelog[0]?.date;
+document.querySelector('#logBody').replaceChildren(...ChessChangelog.map(entry=>{
+  const box=document.createElement('section'); box.className='logentry';
+  const h=document.createElement('h3'); h.textContent=entry.date;
+  const ul=document.createElement('ul'); entry.items.forEach(text=>{const li=document.createElement('li');li.textContent=text;ul.appendChild(li);});
+  box.append(h,ul); return box;
+}));
+let logSeen=''; try { logSeen=localStorage.getItem('chessUnoLogSeen')||''; } catch {}
+document.querySelector('#logDot').hidden = !latestLog || logSeen===latestLog;
+document.querySelector('#logOpen').onclick=()=>{ logModal.classList.add('open'); document.querySelector('#logDot').hidden=true; try { localStorage.setItem('chessUnoLogSeen',latestLog); } catch {} };
+document.querySelector('#logClose').onclick=()=>logModal.classList.remove('open');
+logModal.onclick=event=>{ if(event.target===logModal) logModal.classList.remove('open'); };
+document.addEventListener('keydown',event=>{ if(event.key==='Escape'){ skinModal.classList.remove('open'); logModal.classList.remove('open'); } });
+
 let helpSeen=false; try { helpSeen=localStorage.getItem('chessUnoHelpSeen')==='1'; } catch {}
 if (!helpSeen && location.pathname!=='/debug-play.html') openHelp();
 
