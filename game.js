@@ -386,6 +386,30 @@ function choose(title,text,options,callback) {
   document.querySelector('#modal').classList.add('open');
 }
 
+// 모바일 하단 바: 카드 상태와 뽑기/사용 버튼을 보드와 같은 화면에 둔다.
+function renderMobileBar(card, myTurn, status) {
+  const action=document.querySelector('#mbAction');
+  document.querySelector('#mbIcon').textContent=game.over?'🏁':card?card.icon:'🃏';
+  document.querySelector('#mbTitle').textContent=game.over?game.result:!myTurn?'상대 차례예요':card?card.name:(status.check?'체크! 카드를 뽑으세요':'카드를 뽑으세요');
+  document.querySelector('#mbDesc').textContent=game.over?'':!myTurn?document.querySelector('#boardHint').textContent:game.activeKind?effectHelp(game.activeKind):card?`${card.desc} · ${ChessCards.percentLabel(card,game.weights)}`:`DRAW · ${game.deck}`;
+  action.textContent=game.over?'게임 종료':!game.drawn?'카드 뽑기':game.activeKind?'효과 진행 중':'카드 사용';
+  action.disabled=game.over||!myTurn||(game.drawn&&!!game.activeKind);
+}
+document.querySelector('#mbAction').onclick=()=>{ if(!game.drawn) drawCard(); else useCard(); };
+
+// 모바일 메뉴: 헤더 버튼들을 한곳에 모은다(누르면 원래 버튼을 대신 누른다).
+const menuModal=document.querySelector('#menuModal');
+document.querySelector('#menuOpen').onclick=()=>menuModal.classList.add('open');
+document.querySelector('#menuClose').onclick=()=>menuModal.classList.remove('open');
+menuModal.onclick=event=>{ if(event.target===menuModal) menuModal.classList.remove('open'); };
+menuModal.querySelectorAll('[data-proxy]').forEach(b=>b.onclick=()=>{ menuModal.classList.remove('open'); document.querySelector(b.dataset.proxy).click(); });
+
+// 모바일에서는 온라인 대전 줄을 접어 두고 방 상태만 보여준다.
+const onlineBar=document.querySelector('.online'), onlineToggle=document.querySelector('#onlineToggle');
+const setOnlineCollapsed=collapsed=>{ onlineBar.classList.toggle('collapsed',collapsed); onlineToggle.textContent=collapsed?'온라인 ▾':'접기 ▴'; onlineToggle.setAttribute('aria-expanded',String(!collapsed)); };
+onlineToggle.onclick=()=>setOnlineCollapsed(!onlineBar.classList.contains('collapsed'));
+setOnlineCollapsed(matchMedia('(max-width:640px)').matches);
+
 // 스킨: 각자 화면에만 적용
 let skin = ChessSkins.load();
 // 자리(w/b)별 스킨. 방 밖에선 내 스킨, 방 안에선 multiplayer-v3.js가 각 플레이어 스킨을 돌려준다.
@@ -427,6 +451,7 @@ function render() {
   document.querySelector('#cardState').textContent=card?'1 CARD':'READY'; document.querySelector('#draw').disabled=game.drawn||game.over||!myTurn; document.querySelector('#resign').disabled=game.over;
   const use=document.querySelector('#useCard'); use.disabled=!game.drawn||!!game.activeKind||game.over||!myTurn; use.textContent=!myTurn?'상대 차례예요':!game.drawn?'카드를 먼저 뽑으세요':game.activeKind?'효과 진행 중':'카드 사용하기';
   document.querySelector('#boardHint').textContent=game.over?game.result:!myTurn?'상대의 행동을 기다리는 중이에요.':selected?`${colorName(game.board[selected[0]][selected[1]].color)} ${game.board[selected[0]][selected[1]].type} · ${swapFirst?`바꿀 수 있는 짝 ${targets.length}개`:`가능한 수 ${targets.length}개`}`:game.activeKind?effectHelp(game.activeKind):game.drawn?'공개된 카드를 사용하세요.':(status.check?'체크를 해소해야 합니다.':'카드를 뽑으세요.');
+  renderMobileBar(card,myTurn,status);
   const resultOverlay=document.querySelector('#resultOverlay');
   if (game.over && game.result && hiddenResult!==game.result) {
     document.querySelector('#resultTitle').textContent=resultHeading(game.result);
