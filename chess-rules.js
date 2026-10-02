@@ -136,6 +136,8 @@
     if (!p) return [];
     return pseudoMoves(board, r, c, meta).filter(move => {
       const applied = applyMove(board, move, meta);
+      // 체크가 잠시 남는 건 되지만, 킹이 스스로 공격받는 칸으로 들어가는 건 첫 수에서도 안 된다.
+      if (p.type === 'K' && inCheck(applied.board, p.color, applied.meta)) return false;
       return allLegalMoves(applied.board, p.color, applied.meta).length > 0;
     });
   }

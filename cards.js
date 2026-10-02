@@ -15,7 +15,7 @@
     { id:'shuffle', icon:'⤨', name:'대혼란', desc:'킹을 제외한 양쪽 군대의 기물 위치를 섞어요. 내 킹이 안전한 배치가 나올 때까지 다시 섞어요', kind:'shuffle', weight:4 },
     { id:'addPawn', icon:'♟+', name:'폰 추가', desc:'내 군대가 시작한 쪽 4개 줄의 빈 칸에 폰 1개를 추가해요. 상대 진영에는 놓을 수 없고 군대 반전 시 허용 구역도 뒤집혀요', kind:'addPawn', weight:3 },
     { id:'change', icon:'♕', name:'기물 교체', desc:'킹을 제외한 내 기물 하나를 다른 기물로 바꿔요', kind:'change', weight:2 },
-    { id:'double', icon:'×2', name:'더블 액션', desc:'정식 이동을 두 번 해요', kind:'double', weight:2 },
+    { id:'double', icon:'×2', name:'더블 액션', desc:'두 번 연속으로 움직여요. 첫 수 뒤 체크가 남아도 되지만 킹이 공격받는 칸으로 들어갈 수는 없고, 두 번째 수까지 끝나면 킹이 안전해야 해요', kind:'double', weight:2 },
     { id:'color', icon:'◐', name:'군대 반전', desc:'양쪽 군대 전체를 맞바꾸고 한 번 더 행동해요', kind:'color', weight:2 },
     { id:'wild', icon:'★', name:'와일드', desc:'원하는 특수 카드 하나를 골라 사용해요', kind:'wild', weight:2 }
   ];

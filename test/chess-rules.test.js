@@ -152,3 +152,11 @@ test('room weights are validated, clamped, and default when unchanged', () => {
   assert.equal(C.totalWeight(C.presets.chaos.weights), 100);
   assert.equal(C.totalWeight(C.presets.orthodox.weights), 100);
 });
+
+test('double action first move cannot walk the king into an attacked square', () => {
+  // 흰 킹 e1, 검은 퀸 f2(체크), 그 퀸을 지키는 검은 폰 g3
+  const b = empty(); b[7][4] = piece('w','K'); b[6][5] = piece('b','Q'); b[5][6] = piece('b','P'); b[0][0] = piece('b','K');
+  const kingFirst = R.doubleFirstMoves(b, 7, 4, {});
+  assert.equal(has(kingFirst, 6, 5), false, 'Kxf2 lands on a square the pawn attacks');
+  assert.equal(R.legalMoves(b, 7, 4, {}).some(m => m.to[0] === 6 && m.to[1] === 5), false);
+});
